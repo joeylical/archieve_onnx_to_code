@@ -643,7 +643,7 @@ float layer_output_1[1][10];
               for(int m=-3/2;m <= 3/2;m++) {
                 for(int n=-3/2;n <= 3/2;n++) {
                   if(i+m < 0 || j+n < 0 || i+m>=28 || j+n>=28) {
-                    layer_9[0][c][i][j] += layer_conv1_0_bias[c] * layer_conv1_0_weight[c][c_i][m+3/2][n+3/2];
+                    // layer_9[0][c][i][j] += layer_conv1_0_bias[c] * layer_conv1_0_weight[c][c_i][m+3/2][n+3/2];
                   }else
                     layer_9[0][c][i][j] += layer_input_1[0][c_i][i+m][j+n] * layer_conv1_0_weight[c][c_i][m+3/2][n+3/2];
                 }
@@ -675,8 +675,8 @@ float layer_output_1[1][10];
     void op_MaxPool_2()
     {
       for(int c=0;c<4;c++) {
-        for(int i=0, o_i=0;i<14;i+=2) {
-          for(int j=0, o_j=0;j<14;j+=2) {
+        for(int i=0, o_i=0;i<28;i+=2) {
+          for(int j=0, o_j=0;j<28;j+=2) {
             float max=-9999;
             for(int m=0;m<2;m++) {
               for(int n=0;n<2;n++) {
@@ -735,8 +735,8 @@ float layer_output_1[1][10];
     void op_MaxPool_5()
     {
       for(int c=0;c<8;c++) {
-        for(int i=0, o_i=0;i<6;i+=2) {
-          for(int j=0, o_j=0;j<6;j+=2) {
+        for(int i=0, o_i=0;i<12;i+=2) {
+          for(int j=0, o_j=0;j<12;j+=2) {
             float max=-9999;
             for(int m=0;m<2;m++) {
               for(int n=0;n<2;n++) {
@@ -795,8 +795,8 @@ float layer_output_1[1][10];
     void op_MaxPool_8()
     {
       for(int c=0;c<8;c++) {
-        for(int i=0, o_i=0;i<2;i+=2) {
-          for(int j=0, o_j=0;j<2;j+=2) {
+        for(int i=0, o_i=0;i<4;i+=2) {
+          for(int j=0, o_j=0;j<4;j+=2) {
             float max=-9999;
             for(int m=0;m<2;m++) {
               for(int n=0;n<2;n++) {

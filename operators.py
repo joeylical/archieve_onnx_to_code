@@ -240,8 +240,8 @@ class MaxPool(CNode):
     void op_{i.name}()
     {{
       for(int c=0;c<{i.output[0].shape[1]};c++) {{
-        for(int i=0, o_i=0;i<{i.output[0].shape[3]};i+={i.attribute[2].ints[0]}) {{
-          for(int j=0, o_j=0;j<{i.output[0].shape[2]};j+={i.attribute[2].ints[1]}) {{
+        for(int i=0, o_i=0;i<{i.input[0].shape[3]};i+={i.attribute[2].ints[0]}) {{
+          for(int j=0, o_j=0;j<{i.input[0].shape[2]};j+={i.attribute[2].ints[1]}) {{
             {ctype} max=-9999;
             for(int m=0;m<{i.attribute[0].ints[0]};m++) {{
               for(int n=0;n<{i.attribute[0].ints[1]};n++) {{
