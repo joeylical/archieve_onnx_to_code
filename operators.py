@@ -2,42 +2,25 @@ from functools import reduce
 from operator import mul
 import onnx
 import numpy as np
+from op_impl import *
 
 class Layer():
   def __init__(self, name, shape, dType):
     self.name = name
     self.data_type = dType
     self.shape = shape
-    self.c_name = 'layer_{}'.format(self.name.replace('.', '_'))
+    self.c_name = get_layer_c_name(self.name)
     
   def toArray(self):
-    if self.data_type == onnx.TensorProto.DataType.FLOAT:
-      declare = 'float {}{};'.format(self.c_name, ''.join(map('[{}]'.format, self.shape)))
-      return declare
-    elif self.data_type == 2:
-      pass
-    elif self.data_type == onnx.TensorProto.DataType.INT64:
-      declare = 'uint64_t {}{};'.format(self.c_name, ''.join(map('[{}]'.format, self.shape)))
-      return declare
+    declare = '{} {}{};'.format(c_data_type[self.data_type], self.c_name, shape_to_c_array_proto(self.shape))
+    return declare
+
+  @property
+  def size(self):
+    return reduce(mul, self.shape)
     
   def __str__(self):
     return 'Tensor Object ' + self.name + ' ('+ ', '.join(map(str, self.shape)) + ')'
-  
-c_data_type = {
-  onnx.TensorProto.DataType.FLOAT: 'float',
-  onnx.TensorProto.DataType.UINT8: 'uint8_t',
-  onnx.TensorProto.DataType.INT8: 'int8_t',
-  onnx.TensorProto.DataType.INT16: 'int16_t',
-  onnx.TensorProto.DataType.INT32: 'int32_t',
-  onnx.TensorProto.DataType.STRING: 'char*',
-  onnx.TensorProto.DataType.BOOL: 'bool',
-  onnx.TensorProto.DataType.FLOAT16: 'float',
-  onnx.TensorProto.DataType.DOUBLE: 'double',
-  onnx.TensorProto.DataType.UINT32: 'uint32_t',
-  onnx.TensorProto.DataType.UINT64: 'uint64_t',
-}
-
-shape_to_c_array_proto = lambda shape: ''.join(map(lambda d:'['+str(d)+']', shape))
 
 def array_to_c_code(array, indent):
   ind = '  ' * indent
@@ -58,16 +41,9 @@ class ConstantLayer(Layer):
     self.constant = constant
     
   def toArray(self):
-    if self.data_type == onnx.TensorProto.DataType.FLOAT:
-      declare = 'const float {}{} = \n'.format(self.c_name, ''.join(map('[{}]'.format, self.constant.shape)))
-      body = array_to_c_code(self.constant, 0)
-      return declare + body + ';'
-    elif self.data_type == 2:
-      pass
-    elif self.data_type == onnx.TensorProto.DataType.INT64:
-      declare = 'const uint64_t {}{} = \n'.format(self.c_name, ''.join(map('[{}]'.format, self.constant.shape)))
-      body = array_to_c_code(self.constant, 0)
-      return declare + body + ';'
+    declare = 'const {} {}{} = \n'.format(c_data_type[self.data_type], self.c_name, shape_to_c_array_proto(self.constant.shape))
+    body = array_to_c_code(self.constant, 0)
+    return declare + body + ';'
   
 def getLayerByName(layers, name):
   for layer in layers:
@@ -86,7 +62,7 @@ class CNode():
   def toOpSrc(self):
     return '#error node op {} not implement'.format(self.name)
   
-  def toCallSrc(self):
+  def toCallSrc(self, i, o):
     return '#error node caller {} not implement'.format(self.name)
   
   @staticmethod
@@ -106,59 +82,18 @@ def getLayerByName(layers, name):
   
 class Conv(CNode):
   inplace=False
-  def __init__(self, node):
+  def __init__(self, node, relu=False):
     self.name = node.name
     self.input = node.input
     self.output = node.output
     self._attributes = node.attribute
+    self.relu = relu
     
   def toOpSrc(self):
-    if self._attributes[3].ints[0] != 0:
-      return """// {i.input[0].shape} -> {i.output[0].shape}
-    void op_{i.name}()
-    {{
-      for(int c=0;c<{i.output[0].shape[1]};c++) {{
-        for(int i=0;i<{i.output[0].shape[2]};i++) {{
-          for(int j=0;j<{i.output[0].shape[3]};j++) {{
-            {i.output[0].c_name}[0][c][i][j] = {i.input[2].c_name}[c];
-            for(int c_i=0;c_i < {i.input[0].shape[1]};c_i++) {{
-              for(int m=-{i.input[1].shape[3]}/2;m <= {i.input[1].shape[2]}/2;m++) {{
-                for(int n=-{i.input[1].shape[2]}/2;n <= {i.input[1].shape[3]}/2;n++) {{
-                  if(i+m < 0 || j+n < 0 || i+m>={i.input[0].shape[3]} || j+n>={i.output[0].shape[2]}) {{
-                    // {i.output[0].c_name}[0][c][i][j] += {i.input[2].c_name}[c] * {i.input[1].c_name}[c][c_i][m+{i.input[1].shape[2]}/2][n+{i.input[1].shape[3]}/2];
-                  }}else
-                    {i.output[0].c_name}[0][c][i][j] += {i.input[0].c_name}[0][c_i][i+m][j+n] * {i.input[1].c_name}[c][c_i][m+{i.input[1].shape[2]}/2][n+{i.input[1].shape[3]}/2];
-                }}
-              }}
-            }}
-          }}
-        }}
-      }}
-    }}
-    """.format(i=self)
-    else:
-      return """// {i.input[0].shape} -> {i.output[0].shape}
-    void op_{i.name}()
-    {{
-      for(int c=0;c<{i.output[0].shape[1]};c++) {{
-        for(int i=0;i<{i.output[0].shape[2]};i++) {{
-          for(int j=0;j<{i.output[0].shape[3]};j++) {{
-            {i.output[0].c_name}[0][c][i][j] = {i.input[2].c_name}[c];
-            for(int c_i=0;c_i < {i.input[0].shape[1]};c_i++) {{
-              for(int m=0;m < {i.input[1].shape[2]};m++) {{
-                for(int n=0;n < {i.input[1].shape[3]};n++) {{
-                    {i.output[0].c_name}[0][c][i][j] += {i.input[0].c_name}[0][c_i][i+m][j+n] * {i.input[1].c_name}[c][c_i][m][n];
-                }}
-              }}
-            }}
-          }}
-        }}
-      }}
-    }}
-    """.format(i=self)
+    return OpImpl.getConv(self)
   
-  def toCallSrc(self):
-    return 'op_{i.name}();'.format(i=self)
+  def toCallSrc(self, i, o):
+    return '{name}({i}, {o});'.format(name=OpImpl.getConvCaller(self), i=i, o=o)
 
 class Gemm(CNode):
   inplace=False
@@ -168,39 +103,22 @@ class Gemm(CNode):
     self.output = node.output
     
   def toOpSrc(self):
-    return """
-    void op_{i.name}()
-    {{
-      for(int i=0;i<{i.output[0].shape[1]};i++) {{
-        {ctype} sum = {i.input[2].c_name}[i];
-        for(int j=0;j<{i.input[0].shape[1]};j++) {{
-          sum += {i.input[0].c_name}[0][j] * {i.input[1].c_name}[i][j];
-        }}
-        {i.output[0].c_name}[0][i] = sum;
-      }}
-    }}
-    """.format(i=self, ctype=c_data_type[self.input[0].data_type])
-  
-  def toCallSrc(self):
-    return 'op_{i.name}();'.format(i=self) 
+    return OpImpl.getGemm(self)
+
+  def toCallSrc(self, i, o):
+    return '{name}({i}, {o});'.format(name=OpImpl.getGemmCaller(self), i=i, o=o)
 
 class Reshape(CNode):
   inplace=True
   def __init__(self, node):
-    self.name = node.name
     self.input = node.input
     self.output = node.output
-    
+
   def toOpSrc(self):
-    return """
-    void op_{i.name}()
-    {{
-      memcpy({i.output[0].c_name}, {i.input[0].c_name}, sizeof({i.input[0].c_name}));
-    }}
-    """.format(i=self)
+    return ''
   
-  def toCallSrc(self):
-    return 'op_{i.name}();'.format(i=self)
+  def toCallSrc(self, i, o):
+    return ''
 
 class Relu(CNode):
   inplace=True
@@ -210,22 +128,10 @@ class Relu(CNode):
     self.output = node.output
 
   def toOpSrc(self):
-    return """
-    void op_{i.name}()
-    {{
-      {ctype}* p = ({ctype}*){i.input[0].c_name};
-      int i = 0;
-      while(i < {s}) {{
-        if(*p<0)*p=0;
-        i++;
-        p++;
-      }}
-      memcpy({i.output[0].c_name}, {i.input[0].c_name}, sizeof({i.input[0].c_name}));
-    }}
-    """.format(i=self, ctype=c_data_type[self.input[0].data_type], s='*'.join(map(str, self.input[0].shape)))
-  
-  def toCallSrc(self):
-    return 'op_{i.name}();'.format(i=self)
+    return OpImpl.getRelu(self)
+
+  def toCallSrc(self, i, o):
+    return '{name}({i}, {o});'.format(name=OpImpl.getReluCaller(self), i=i, o=o)
     
 class MaxPool(CNode):
   inplace=False
@@ -233,36 +139,15 @@ class MaxPool(CNode):
     self.name = node.name
     self.input = node.input
     self.output = node.output
-    self.attribute = node.attribute
+    self._attributes = node.attribute
 
   def toOpSrc(self):
-    return """
-    void op_{i.name}()
-    {{
-      for(int c=0;c<{i.output[0].shape[1]};c++) {{
-        for(int i=0, o_i=0;i<{i.input[0].shape[3]};i+={i.attribute[2].ints[0]}) {{
-          for(int j=0, o_j=0;j<{i.input[0].shape[2]};j+={i.attribute[2].ints[1]}) {{
-            {ctype} max=-9999;
-            for(int m=0;m<{i.attribute[0].ints[0]};m++) {{
-              for(int n=0;n<{i.attribute[0].ints[1]};n++) {{
-                if(max < {i.input[0].c_name}[0][c][i+m][j+n]) {{
-                  max = {i.input[0].c_name}[0][c][i+m][j+n];
-                }}
-              }}
-            }}
-            {i.output[0].c_name}[0][c][o_i][o_j] = max;
-            o_j++;
-          }}
-          o_i++;
-        }}
-      }}
-    }}
-    """.format(i=self, ctype=c_data_type[self.input[0].data_type])
-  
-  def toCallSrc(self):
-    return 'op_{i.name}();'.format(i=self)
+    return OpImpl.getMaxPool(self)
+  def toCallSrc(self, i, o):
+    return '{name}({i}, {o});'.format(name=OpImpl.getMaxPoolCaller(self), i=i, o=o)
     
 class Constant(CNode):
+  inplace = True
   def __init__(self, node):
     self.name = node.name
     self.input = node.input
@@ -271,7 +156,7 @@ class Constant(CNode):
   def toOpSrc(self):
     return ''
   
-  def toCallSrc(self):
+  def toCallSrc(self, i, o):
     return ''
 
 class Softmax(CNode):
@@ -282,15 +167,10 @@ class Softmax(CNode):
     self.output = node.output
 
   def toOpSrc(self):
-    return """
-    void op_{i.name}()
-    {{
-      memcpy({i.output[0].c_name}, {i.input[0].c_name}, sizeof({i.input[0].c_name}));
-    }}
-    """.format(i=self)
+    return ''
   
-  def toCallSrc(self):
-    return 'op_{i.name}();'.format(i=self)
+  def toCallSrc(self, i, o):
+    return ''
     
 availible_nodes = {
   'Conv': Conv,

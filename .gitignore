@@ -2,3 +2,6 @@ data/
 .ipynb_checkpoints/
 a.out
 __pycache__/
+mnist1.onnx
+test.py
+9.txt

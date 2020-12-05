@@ -16,15 +16,15 @@ int main(int argc, char* argv[])
   Model(inf, out);
   
   int max_i;
-  float max=-99999;
+  float max=-FLT_MAX;
   for(int i=0;i < 10;i++) {
+    printf("%.3f ", out[i]);
     if(max < out[i]) {
       max = out[i];
       max_i = i;
     }
   }
   
-  printf("num: %d\n", max_i);
-  
+  printf("\nnum: %d\n", max_i);
   return 0;
 }

@@ -2,6 +2,13 @@
 
 #include <stdint.h>
 #include <string.h>
+#include <limits.h>
+#include <float.h>
+
+
+#define float_IS_ZERO(value) ((value) > -0.0001f && (value) < 0.0001f)
+#define uint8_t_IS_ZERO(value) (!(value))
+
 
 // layer: conv1.0.bias shape: (4,)
 const float layer_conv1_0_bias[4] = 
@@ -589,280 +596,296 @@ const float layer_dense_1_weight[10][32] =
   {-0.3119355, 0.21888432, 0.073601626, 0.095079616, -0.011047416, -0.24594173, 0.007767821, 0.056208856, -0.02475472, 0.16210951, 0.007112249, -0.09136684, 0.04104982, 0.0460544, -0.007694046, 0.14417423, 0.23590627, -0.3305166, -0.090997055, 0.08714468, -0.17535377, -0.17145136, 0.2913008, 0.15169595, 0.07104549, -0.1514631, -0.05516927, -0.013195104, -0.18717293, -0.104368865, -0.20761448, 0.12567003},
 };
 
-// layer: input_1 shape: (1, 1, 28, 28)
-float layer_input_1[1][1][28][28];
+float buf1[3136];
+float buf2[3136];
 
-// layer: 9 shape: (1, 4, 28, 28)
-float layer_9[1][4][28][28];
 
-// layer: 10 shape: (1, 4, 28, 28)
-float layer_10[1][4][28][28];
+//node
 
-// layer: 11 shape: (1, 4, 14, 14)
-float layer_11[1][4][14][14];
+// 1x28x28 => 4x28x28
+void op_Conv_0(void* in, void* out)
+{
+  float (*i)[1][28][28];
+  i = (typeof(i))(in);
+  float (*o)[4][28][28];
+  o = (typeof(o))(out);
+  
+  {
+    float *p = (float*)((*o));
+    for(int c=0;c < 4;c++) {
+      int cnt=0;
+      while(cnt++ < 28*28) {
+        *p++ = layer_conv1_0_bias[c];
+      }
+    }
+  }
+  
+  for(int c_i=0;c_i < 1;c_i++) {
+    for(int m=-1;m <= 1;m++) {
+      for(int n=-1;n <= 1;n++) {
+        for(int o_c=0;o_c < 4 ;o_c++) {
+          float t = layer_conv1_0_weight[o_c][c_i][m-(-1)][n-(-1)];
+          if(float_IS_ZERO(t))
+            continue;
+          for(int o_x=(m>=0?0:-m);o_x < 28 - (m<0?0:m) ;o_x += 1) {
+            for(int o_y=(n>=0?0:-n);o_y < 28 - (n<0?0:n) ;o_y += 1) {
+                (*o)[o_c][o_x][o_y] += (*i)[c_i][o_x+m][o_y+n] * t;
+            } // o_y
+          } // o_x
+        } // o_c
+      } // n
+    } // m
+  } // c_i
+}
 
-// layer: 12 shape: (1, 8, 12, 12)
-float layer_12[1][8][12][12];
 
-// layer: 13 shape: (1, 8, 12, 12)
-float layer_13[1][8][12][12];
+//node
 
-// layer: 14 shape: (1, 8, 6, 6)
-float layer_14[1][8][6][6];
+void op_Relu_1(void* in, void* out)
+{
+  float* p = (float*)in;
+  int i = 0;
+  while(i++ < 3136) {
+    if(*p<0)*p=0;
+    p++;
+  }
+}
 
-// layer: 15 shape: (1, 8, 4, 4)
-float layer_15[1][8][4][4];
 
-// layer: 16 shape: (1, 8, 4, 4)
-float layer_16[1][8][4][4];
+//node
 
-// layer: 17 shape: (1, 8, 2, 2)
-float layer_17[1][8][2][2];
+void op_MaxPool_2(void* in, void* out)
+{
+  float (*i)[4][28][28];
+  i = (typeof(i))(in);
+  float (*o)[4][14][14];
+  o = (typeof(o))(out);
 
-// layer: 18 shape: (2,)
-uint64_t layer_18[2];
+  for(int c=0;c<4;c++) {
+    for(int x=0, o_i=0;x<28;x+=2) {
+      for(int y=0, o_j=0;y<28;y+=2) {
+        float max=-FLT_MIN;
+        for(int m=0;m<2;m++) {
+          for(int n=0;n<2;n++) {
+            if(max < (*i)[c][x+m][y+n]) {
+              max = (*i)[c][x+m][y+n];
+            }
+          }
+        }
+        (*o)[c][o_i][o_j] = max;
+        o_j++;
+      }
+      o_i++;
+    }
+  }
+}
 
-// layer: 19 shape: (1, 32)
-float layer_19[1][32];
 
-// layer: 20 shape: (1, 10)
-float layer_20[1][10];
+//node
 
-// layer: output_1 shape: (1, 10)
-float layer_output_1[1][10];
+// 4x14x14 => 8x12x12
+void op_Conv_3(void* in, void* out)
+{
+  float (*i)[4][14][14];
+  i = (typeof(i))(in);
+  float (*o)[8][12][12];
+  o = (typeof(o))(out);
 
-// node
-// (1, 1, 28, 28) -> (1, 4, 28, 28)
-    void op_Conv_0()
-    {
-      for(int c=0;c<4;c++) {
-        for(int i=0;i<28;i++) {
-          for(int j=0;j<28;j++) {
-            layer_9[0][c][i][j] = layer_conv1_0_bias[c];
-            for(int c_i=0;c_i < 1;c_i++) {
-              for(int m=-3/2;m <= 3/2;m++) {
-                for(int n=-3/2;n <= 3/2;n++) {
-                  if(i+m < 0 || j+n < 0 || i+m>=28 || j+n>=28) {
-                    // layer_9[0][c][i][j] += layer_conv1_0_bias[c] * layer_conv1_0_weight[c][c_i][m+3/2][n+3/2];
-                  }else
-                    layer_9[0][c][i][j] += layer_input_1[0][c_i][i+m][j+n] * layer_conv1_0_weight[c][c_i][m+3/2][n+3/2];
-                }
-              }
+  {
+    float *p = (float*)((*o));
+    for(int c=0;c < 8;c++) {
+      int cnt=0;
+      while(cnt++ < 12*12) {
+        *p++ = layer_conv1_3_bias[c];
+      }
+    }
+  }
+
+  for(int c_i=0;c_i < 4;c_i++) {
+    for(int m=0;m < 3;m++) {
+      for(int n=0;n < 3;n++) {
+        for(int c=0;c<8;c++) {
+          float t = layer_conv1_3_weight[c][c_i][m][n];
+          if(float_IS_ZERO(t))
+            continue;
+          for(int x=0;x<12;x++) {
+            for(int y=0;y<12;y++) {
+              (*o)[c][x][y] += (*i)[c_i][x+m][y+n] * t;
             }
           }
         }
       }
     }
-    
+  }
+}
 
-// node
 
-    void op_Relu_1()
-    {
-      float* p = (float*)layer_9;
-      int i = 0;
-      while(i < 1*4*28*28) {
-        if(*p<0)*p=0;
-        i++;
-        p++;
-      }
-      memcpy(layer_10, layer_9, sizeof(layer_9));
-    }
-    
+//node
 
-// node
+void op_Relu_4(void* in, void* out)
+{
+  float* p = (float*)in;
+  int i = 0;
+  while(i++ < 1152) {
+    if(*p<0)*p=0;
+    p++;
+  }
+}
 
-    void op_MaxPool_2()
-    {
-      for(int c=0;c<4;c++) {
-        for(int i=0, o_i=0;i<28;i+=2) {
-          for(int j=0, o_j=0;j<28;j+=2) {
-            float max=-9999;
-            for(int m=0;m<2;m++) {
-              for(int n=0;n<2;n++) {
-                if(max < layer_10[0][c][i+m][j+n]) {
-                  max = layer_10[0][c][i+m][j+n];
-                }
-              }
-            }
-            layer_11[0][c][o_i][o_j] = max;
-            o_j++;
-          }
-          o_i++;
-        }
-      }
-    }
-    
 
-// node
-// (1, 4, 14, 14) -> (1, 8, 12, 12)
-    void op_Conv_3()
-    {
-      for(int c=0;c<8;c++) {
-        for(int i=0;i<12;i++) {
-          for(int j=0;j<12;j++) {
-            layer_12[0][c][i][j] = layer_conv1_3_bias[c];
-            for(int c_i=0;c_i < 4;c_i++) {
-              for(int m=0;m < 3;m++) {
-                for(int n=0;n < 3;n++) {
-                    layer_12[0][c][i][j] += layer_11[0][c_i][i+m][j+n] * layer_conv1_3_weight[c][c_i][m][n];
-                }
-              }
+//node
+
+void op_MaxPool_5(void* in, void* out)
+{
+  float (*i)[8][12][12];
+  i = (typeof(i))(in);
+  float (*o)[8][6][6];
+  o = (typeof(o))(out);
+
+  for(int c=0;c<8;c++) {
+    for(int x=0, o_i=0;x<12;x+=2) {
+      for(int y=0, o_j=0;y<12;y+=2) {
+        float max=-FLT_MIN;
+        for(int m=0;m<2;m++) {
+          for(int n=0;n<2;n++) {
+            if(max < (*i)[c][x+m][y+n]) {
+              max = (*i)[c][x+m][y+n];
             }
           }
         }
+        (*o)[c][o_i][o_j] = max;
+        o_j++;
+      }
+      o_i++;
+    }
+  }
+}
+
+
+//node
+
+// 8x6x6 => 8x4x4
+void op_Conv_6(void* in, void* out)
+{
+  float (*i)[8][6][6];
+  i = (typeof(i))(in);
+  float (*o)[8][4][4];
+  o = (typeof(o))(out);
+
+  {
+    float *p = (float*)((*o));
+    for(int c=0;c < 8;c++) {
+      int cnt=0;
+      while(cnt++ < 4*4) {
+        *p++ = layer_conv1_6_bias[c];
       }
     }
-    
+  }
 
-// node
-
-    void op_Relu_4()
-    {
-      float* p = (float*)layer_12;
-      int i = 0;
-      while(i < 1*8*12*12) {
-        if(*p<0)*p=0;
-        i++;
-        p++;
-      }
-      memcpy(layer_13, layer_12, sizeof(layer_12));
-    }
-    
-
-// node
-
-    void op_MaxPool_5()
-    {
-      for(int c=0;c<8;c++) {
-        for(int i=0, o_i=0;i<12;i+=2) {
-          for(int j=0, o_j=0;j<12;j+=2) {
-            float max=-9999;
-            for(int m=0;m<2;m++) {
-              for(int n=0;n<2;n++) {
-                if(max < layer_13[0][c][i+m][j+n]) {
-                  max = layer_13[0][c][i+m][j+n];
-                }
-              }
-            }
-            layer_14[0][c][o_i][o_j] = max;
-            o_j++;
-          }
-          o_i++;
-        }
-      }
-    }
-    
-
-// node
-// (1, 8, 6, 6) -> (1, 8, 4, 4)
-    void op_Conv_6()
-    {
-      for(int c=0;c<8;c++) {
-        for(int i=0;i<4;i++) {
-          for(int j=0;j<4;j++) {
-            layer_15[0][c][i][j] = layer_conv1_6_bias[c];
-            for(int c_i=0;c_i < 8;c_i++) {
-              for(int m=0;m < 3;m++) {
-                for(int n=0;n < 3;n++) {
-                    layer_15[0][c][i][j] += layer_14[0][c_i][i+m][j+n] * layer_conv1_6_weight[c][c_i][m][n];
-                }
-              }
+  for(int c_i=0;c_i < 8;c_i++) {
+    for(int m=0;m < 3;m++) {
+      for(int n=0;n < 3;n++) {
+        for(int c=0;c<8;c++) {
+          float t = layer_conv1_6_weight[c][c_i][m][n];
+          if(float_IS_ZERO(t))
+            continue;
+          for(int x=0;x<4;x++) {
+            for(int y=0;y<4;y++) {
+              (*o)[c][x][y] += (*i)[c_i][x+m][y+n] * t;
             }
           }
         }
       }
     }
-    
+  }
+}
 
-// node
 
-    void op_Relu_7()
-    {
-      float* p = (float*)layer_15;
-      int i = 0;
-      while(i < 1*8*4*4) {
-        if(*p<0)*p=0;
-        i++;
-        p++;
-      }
-      memcpy(layer_16, layer_15, sizeof(layer_15));
-    }
-    
+//node
 
-// node
+void op_Relu_7(void* in, void* out)
+{
+  float* p = (float*)in;
+  int i = 0;
+  while(i++ < 128) {
+    if(*p<0)*p=0;
+    p++;
+  }
+}
 
-    void op_MaxPool_8()
-    {
-      for(int c=0;c<8;c++) {
-        for(int i=0, o_i=0;i<4;i+=2) {
-          for(int j=0, o_j=0;j<4;j+=2) {
-            float max=-9999;
-            for(int m=0;m<2;m++) {
-              for(int n=0;n<2;n++) {
-                if(max < layer_16[0][c][i+m][j+n]) {
-                  max = layer_16[0][c][i+m][j+n];
-                }
-              }
+
+//node
+
+void op_MaxPool_8(void* in, void* out)
+{
+  float (*i)[8][4][4];
+  i = (typeof(i))(in);
+  float (*o)[8][2][2];
+  o = (typeof(o))(out);
+
+  for(int c=0;c<8;c++) {
+    for(int x=0, o_i=0;x<4;x+=2) {
+      for(int y=0, o_j=0;y<4;y+=2) {
+        float max=-FLT_MIN;
+        for(int m=0;m<2;m++) {
+          for(int n=0;n<2;n++) {
+            if(max < (*i)[c][x+m][y+n]) {
+              max = (*i)[c][x+m][y+n];
             }
-            layer_17[0][c][o_i][o_j] = max;
-            o_j++;
           }
-          o_i++;
         }
+        (*o)[c][o_i][o_j] = max;
+        o_j++;
       }
+      o_i++;
     }
-    
+  }
+}
 
-// node
+
+//node
 
 
-// node
+//node
 
-    void op_Reshape_10()
-    {
-      memcpy(layer_19, layer_17, sizeof(layer_17));
+
+//node
+
+// 32 => 10
+void op_Gemm_11(void* in, void *out)
+{
+  float (*i)[32];
+  i = (typeof(i))(in);
+  float (*o)[10];
+  o = (typeof(o))(out);
+
+  for(int m=0;m<10;m++) {
+    float sum = layer_dense_1_bias[m];
+    for(int n=0;n<32;n++) {
+      sum += (*i)[n] * layer_dense_1_weight[m][n];
     }
-    
+    (*o)[m] = sum;
+  }
+}
 
-// node
 
-    void op_Gemm_11()
-    {
-      for(int i=0;i<10;i++) {
-        float sum = layer_dense_1_bias[i];
-        for(int j=0;j<32;j++) {
-          sum += layer_19[0][j] * layer_dense_1_weight[i][j];
-        }
-        layer_20[0][i] = sum;
-      }
-    }
-    
+//node
 
-// node
-
-    void op_Softmax_12()
-    {
-      memcpy(layer_output_1, layer_20, sizeof(layer_20));
-    }
-    
 
 void Model(void* input, void* output)
-      {
-        memcpy(layer_input_1, input, sizeof(layer_input_1));
-        op_Conv_0();
-op_Relu_1();
-op_MaxPool_2();
-op_Conv_3();
-op_Relu_4();
-op_MaxPool_5();
-op_Conv_6();
-op_Relu_7();
-op_MaxPool_8();
+{
+op_Conv_0(input, buf1);
+op_Relu_1(buf1, NULL);
+op_MaxPool_2(buf1, buf2);
+op_Conv_3(buf2, buf1);
+op_Relu_4(buf1, NULL);
+op_MaxPool_5(buf1, buf2);
+op_Conv_6(buf2, buf1);
+op_Relu_7(buf1, NULL);
+op_MaxPool_8(buf1, buf2);
 
-op_Reshape_10();
-op_Gemm_11();
-op_Softmax_12();
-        memcpy(output, layer_output_1, sizeof(layer_output_1));
-      }
-      
+
+op_Gemm_11(buf2, output);
+
+}
+
