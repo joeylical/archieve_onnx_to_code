@@ -6,7 +6,7 @@ apply = lambda f,*args,**kwargs:f(*args,**kwargs)
 
 shape_to_c_array_proto = lru_cache()(lambda shape: ''.join(map('[{}]'.format, shape)))
 
-get_layer_c_name = lru_cache()(lambda layer: 'layer_{}'.format(layer.replace('.', '_')))
+get_layer_c_name = lru_cache()(lambda layer: 'layer_{}'.format(layer.replace('.', '_').replace('/', '_').replace(':', '_')))
 
 c_data_type = {
   onnx.TensorProto.DataType.FLOAT: 'float',
@@ -55,7 +55,7 @@ conv2d_format = lambda node: {
 
   'c_strip': node._attributes[-1].ints[0],
 
-  'bias': node.input[2].c_name,
+  'bias': node.input[2].c_name if len(node.input) >= 3 else 0,
   'conv_l': node.input[1].shape[2],
   'weight': node.input[1].c_name,
 }
@@ -129,7 +129,7 @@ conv2d_padding_format = lambda node:{
   'x_strip': node._attributes[-1].ints[0],
   'y_strip': node._attributes[-1].ints[1],
 
-  'bias': node.input[2].c_name,
+  'bias': node.input[2].c_name if len(node.input) >= 3 else 0,
   'conv_b': -(node.input[1].shape[2]//2),
   'conv_e': (node.input[1].shape[2]//2),
   'weight': node.input[1].c_name,
@@ -255,7 +255,7 @@ void ${name}(void* in, void* out)
     p++;
   }
 }
-""")
+""", strict_undefined=True)
 
 class ReluImpl():
   @staticmethod
@@ -270,6 +270,38 @@ class ReluImpl():
   def getOpName(node):
     return '{}'.format(relu_format(node)['name'])
 
+leakyrelu_format = lambda node:{
+  'name': 'op_' + node.name,
+  'ctype': c_data_type[node.input[0].data_type],
+  'len': node.output[0].size,
+  'alpha': node._attributes[0].f,
+}
+
+leakyrelu = Template("""
+void ${name}(void* in, void* out)
+{
+  ${ctype}* p = (${ctype}*)in;
+  int i = 0;
+  while(i++ < ${len}) {
+    if(*p<0)*p *= ${alpha};
+    p++;
+  }
+}
+""", strict_undefined=True)
+
+class LeakyReluImpl():
+  @staticmethod
+  def suitable(node):
+    return True
+
+  @staticmethod
+  def getOp(node):
+    return leakyrelu.render(**leakyrelu_format(node))
+  
+  @staticmethod
+  def getOpName(node):
+    return '{}'.format(leakyrelu_format(node)['name'])
+
 maxpool_format = lambda node:{
   'name': 'op_' + node.name,
   'ctype': c_data_type[node.input[0].data_type],
@@ -281,8 +313,8 @@ maxpool_format = lambda node:{
   'o_y': node.output[0].shape[3],
   'shape_x': node._attributes[0].ints[0],
   'shape_y': node._attributes[0].ints[1],
-  'strides_x': node._attributes[-1].ints[0],
-  'strides_y': node._attributes[-1].ints[1],
+  'strides_x': node._attributes[2].ints[0] if len(node._attributes)>=3 else 0,
+  'strides_y': node._attributes[2].ints[1] if len(node._attributes)>=3 else 0,
 }
 
 maxpool = Template("""
@@ -311,7 +343,7 @@ void ${name}(void* in, void* out)
     }
   }
 }
-""")
+""", strict_undefined=True)
 
 class MaxPoolImpl():
   @staticmethod
@@ -325,6 +357,210 @@ class MaxPoolImpl():
   @staticmethod
   def getOpName(node):
     return '{}'.format(maxpool_format(node)['name'])
+
+clip_format = lambda node:{
+  'name': 'op_' + node.name,
+  'ctype': c_data_type[node.input[0].data_type],
+  'size': node.input[0].size,
+  'min': node._attributes[0].f,
+  'max': node._attributes[1].f,
+}
+
+clip = Template("""
+void ${name}(void* in, void* out)
+{
+  ${ctype}* i = (typeof(i))(in);
+
+  int cnt=0;
+  while(cnt++<${size}) {
+    if(*i>${max}) {
+      *i = ${max};
+    }else if(*i < ${min}) {
+      *i = ${min};
+    }
+    i++;
+  }
+}
+""", strict_undefined=True)
+
+class ClipImpl():
+  @staticmethod
+  def suitable(node):
+    return True
+
+  @staticmethod
+  def getOp(node):
+    return clip.render(**clip_format(node))
+  
+  @staticmethod
+  def getOpName(node):
+    return '{}'.format(clip_format(node)['name'])
+
+bn_format = lambda node:{
+  'name': 'op_' + node.name,
+  'ctype': c_data_type[node.input[0].data_type],
+  'epsilon': node._attributes[0].f,
+  'ch': node.input[0].shape[1],
+  'size': node.input[0].shape[2] * node.input[0].shape[3],
+  'scale': node.input[1].c_name,
+  'bias': node.input[2].c_name,
+  'mean': node.input[3].c_name,
+  'var': node.input[4].c_name,
+}
+
+bn = Template("""
+void ${name}(void* in, void* out)
+{
+  ${ctype} (*i)[${ch}][${size}];
+  i = (typeof(i))(in);
+
+  for(int c=0;c < ${ch};c++) {
+    ${ctype}* p = (typeof(p))((*i)[c]);
+    int cnt = 0;
+    while(cnt++ < ${size}) {
+      *p = ${scale}[c] * (*p - ${mean}[c]) / sqrtf(${var}[c]*${var}[c] + ${epsilon}[c]) + ${bias}[c];
+    }
+  }
+}
+""", strict_undefined=True)
+
+class BnImpl():
+  @staticmethod
+  def suitable(node):
+    return True
+
+  @staticmethod
+  def getOp(node):
+    return bn.render(**bn_format(node))
+  
+  @staticmethod
+  def getOpName(node):
+    return '{}'.format(bn_format(node)['name'])
+
+averagepool_format = lambda node:{
+  'name': 'op_' + node.name,
+  'ctype': c_data_type[node.input[0].data_type],
+  'ctype_min': min_value[node.input[0].data_type],
+  'ch': node.input[0].shape[1],
+  'i_x': node.input[0].shape[2],
+  'i_y': node.input[0].shape[3],
+  'o_x': node.output[0].shape[2],
+  'o_y': node.output[0].shape[3],
+  'shape_x': node._attributes[0].ints[0],
+  'shape_y': node._attributes[0].ints[1],
+  'strides_x': node._attributes[2].ints[0] if len(node._attributes)>=3 else 0,
+  'strides_y': node._attributes[2].ints[1] if len(node._attributes)>=3 else 0,
+}
+
+averagepool = Template("""
+void ${name}(void* in, void* out)
+{
+  ${ctype} (*i)[${ch}][${i_x}][${i_y}];
+  i = (typeof(i))(in);
+  ${ctype} (*o)[${ch}][${o_x}][${o_y}];
+  o = (typeof(o))(out);
+
+  for(int c=0;c<${ch};c++) {
+    for(int x=0, o_i=0;x<${i_x};x+=${strides_x}) {
+      for(int y=0, o_j=0;y<${i_y};y+=${strides_y}) {
+        ${ctype} result=0;
+        for(int m=0;m<${shape_x};m++) {
+          for(int n=0;n<${shape_y};n++) {
+              result += (*i)[c][x+m][y+n];
+          }
+        }
+        (*o)[c][o_i][o_j] = result/(${shape_x}*${shape_y});
+        o_j++;
+      }
+      o_i++;
+    }
+  }
+}
+""", strict_undefined=True)
+
+class AveragePoolImpl():
+  @staticmethod
+  def suitable(node):
+    return True
+
+  @staticmethod
+  def getOp(node):
+    return averagepool.render(**averagepool_format(node))
+  
+  @staticmethod
+  def getOpName(node):
+    return '{}'.format(averagepool_format(node)['name'])
+
+mul_format = lambda node:{
+  'name': 'op_' + node.name,
+  'ctype': c_data_type[node.input[0].data_type],
+  'size': node.input[0].size,
+  'B': node.input[1].c_name,
+}
+
+mulOp = Template("""
+void ${name}(void* in, void* out)
+{
+  ${ctype}* i = (typeof(i))(in);
+
+  int cnt=0;
+  while(cnt++<${size}) {
+    *i++ *= ${B}[0];
+  }
+}
+""", strict_undefined=True)
+
+class MulImpl():
+  @staticmethod
+  def suitable(node):
+    return True
+
+  @staticmethod
+  def getOp(node):
+    return mulOp.render(**mul_format(node))
+  
+  @staticmethod
+  def getOpName(node):
+    return '{}'.format(mul_format(node)['name'])
+
+add_format = lambda node:{
+  'name': 'op_' + node.name,
+  'ctype': c_data_type[node.input[1].data_type],
+  'B': node.input[0].c_name,
+  'ch': node.input[1].shape[1],
+  'i_x': node.input[1].shape[2],
+  'i_y': node.input[1].shape[3],
+}
+
+addOp = Template("""
+void ${name}(void* in, void* out)
+{
+  ${ctype} (*i)[${ch}][${i_x}][${i_y}] = (typeof(i))(in);
+
+  for(int a=0;a<${ch};a++) {
+    if(${B}[ch][0][0] == 0)
+      continue;
+    for(int b=0;b<${i_x};b++) {
+      for(int c=0;c<${i_y};c++) {
+        (*i)[a][b][c] += ${B}[ch][0][0];
+      }
+    }
+  }
+}
+""", strict_undefined=True)
+
+class AddImpl():
+  @staticmethod
+  def suitable(node):
+    return True
+
+  @staticmethod
+  def getOp(node):
+    return addOp.render(**add_format(node))
+  
+  @staticmethod
+  def getOpName(node):
+    return '{}'.format(add_format(node)['name'])
 
 def make_indent(code, tab=' ', indent=0):
   code = code.strip()
@@ -360,12 +596,60 @@ class OpImpl():
     return ReluImpl.getOpName(cnode)
 
   @staticmethod
+  def getLeakyRelu(cnode):
+    return ReluImpl.getOp(cnode)
+  
+  @staticmethod
+  def getLeakyReluCaller(cnode):
+    return ReluImpl.getOpName(cnode)
+
+  @staticmethod
   def getMaxPool(cnode):
     return MaxPoolImpl.getOp(cnode)
   
   @staticmethod
   def getMaxPoolCaller(cnode):
     return MaxPoolImpl.getOpName(cnode)
+
+  @staticmethod
+  def getClip(cnode):
+    return ClipImpl.getOp(cnode)
+  
+  @staticmethod
+  def getClipCaller(cnode):
+    return ClipImpl.getOpName(cnode)
+
+  @staticmethod
+  def getAveragePool(cnode):
+    return AveragePoolImpl.getOp(cnode)
+  
+  @staticmethod
+  def getAveragePoolCaller(cnode):
+    return AveragePoolImpl.getOpName(cnode)
+
+  @staticmethod
+  def getBN(cnode):
+    return BnImpl.getOp(cnode)
+
+  @staticmethod
+  def getBnCaller(cnode):
+    return BnImpl.getOpName(cnode)
+
+  @staticmethod
+  def getAdd(cnode):
+    return AddImpl.getOp(cnode)
+  
+  @staticmethod
+  def getAddCaller(cnode):
+    return AddImpl.getOpName(cnode)
+  
+  @staticmethod
+  def getMul(cnode):
+    return MulImpl.getOp(cnode)
+
+  @staticmethod
+  def getMulCaller(cnode):
+    return MulImpl.getOpName(cnode)
   
 if __name__ == '__main__':
   from operators import Layer

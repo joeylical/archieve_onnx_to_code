@@ -5,3 +5,7 @@ __pycache__/
 mnist1.onnx
 test.py
 9.txt
+mobilenet_v1_1.0_224.c
+mobilenet_v1_1.0_224.onnx
+tinyyolov2-7.c
+tinyyolov2-7.onnx

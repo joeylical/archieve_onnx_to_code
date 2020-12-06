@@ -67,6 +67,8 @@ def main():
     # create operators
     for i, node in enumerate(model.graph.node):
       new_node = CNode.getOperator(node)
+      if new_node is None:
+        print('{}'.format(node.name))
       new_node.update(layers)
       nodes.append(new_node)
 
@@ -85,6 +87,7 @@ def main():
       f.write('#include <string.h>\n')
       f.write('#include <limits.h>\n')
       f.write('#include <float.h>\n')
+      f.write('#include <math.h>')
       f.write('\n\n')
 
       f.write('#define float_IS_ZERO(value) ((value) > -0.0001f && (value) < 0.0001f)\n')
@@ -94,7 +97,7 @@ def main():
       for l in layers:
         if isinstance(l, ConstantLayer):
           f.write('// layer: {} shape: {}\n'.format(l.name, l.shape))
-          f.write(l.toArray())
+          # f.write(l.toArray())
           f.write('\n\n')
       
       f.write('{ctype} buf1[{size}];\n'.format(ctype=c_data_type[layers[0].data_type], size=size[0]))

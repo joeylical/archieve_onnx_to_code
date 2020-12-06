@@ -17,6 +17,9 @@ class Layer():
 
   @property
   def size(self):
+    if len(self.shape) == 0:
+      print(self.name)
+      return 0
     return reduce(mul, self.shape)
     
   def __str__(self):
@@ -69,6 +72,8 @@ class CNode():
   def getOperator(node):
     if node.op_type in availible_nodes:
       return availible_nodes[node.op_type](node)
+    else:
+      print(node)
   
   def __str__(self):
     return 'cNode: {}'.format(self.name)
@@ -132,6 +137,19 @@ class Relu(CNode):
 
   def toCallSrc(self, i, o):
     return '{name}({i}, {o});'.format(name=OpImpl.getReluCaller(self), i=i, o=o)
+
+class LeakyRelu(CNode):
+  inplace=True
+  def __init__(self, node):
+    self.name = node.name
+    self.input = node.input
+    self.output = node.output
+
+  def toOpSrc(self):
+    return OpImpl.getLeakyRelu(self)
+
+  def toCallSrc(self, i, o):
+    return '{name}({i}, {o});'.format(name=OpImpl.getLeakyReluCaller(self), i=i, o=o)
     
 class MaxPool(CNode):
   inplace=False
@@ -145,6 +163,19 @@ class MaxPool(CNode):
     return OpImpl.getMaxPool(self)
   def toCallSrc(self, i, o):
     return '{name}({i}, {o});'.format(name=OpImpl.getMaxPoolCaller(self), i=i, o=o)
+    
+class AveragePool(CNode):
+  inplace=False
+  def __init__(self, node):
+    self.name = node.name
+    self.input = node.input
+    self.output = node.output
+    self._attributes = node.attribute
+
+  def toOpSrc(self):
+    return OpImpl.getAveragePool(self)
+  def toCallSrc(self, i, o):
+    return '{name}({i}, {o});'.format(name=OpImpl.getAveragePoolCaller(self), i=i, o=o)
     
 class Constant(CNode):
   inplace = True
@@ -172,14 +203,106 @@ class Softmax(CNode):
   def toCallSrc(self, i, o):
     return ''
     
+class Clip(CNode):
+  inplace=True
+  def __init__(self, node):
+    self.name = node.name
+    self.input = node.input
+    self.output = node.output
+    self._attributes = node.attribute
+
+  def toOpSrc(self):
+    return OpImpl.getClip(self)
+  
+  def toCallSrc(self, i, o):
+    return '{name}({i}, {o});'.format(name=OpImpl.getClipCaller(self), i=i, o=o)
+
+class BatchNormalization(CNode):
+  inplace=True
+  def __init__(self, node):
+    self.name = node.name
+    self.input = node.input
+    self.output = node.output
+    self._attributes = node.attribute
+
+  def toOpSrc(self):
+    return OpImpl.getBN(self)
+  
+  def toCallSrc(self, i, o):
+    return '{name}({i}, {o});'.format(name=OpImpl.getBnCaller(self), i=i, o=o)
+
+class Squeeze(CNode):
+  inplace=True
+  def __init__(self, node):
+    self.name = node.name
+    self.input = node.input
+    self.output = node.output
+
+  def toOpSrc(self):
+    return ''
+  
+  def toCallSrc(self, i, o):
+    return ''
+
+class Shape(CNode):
+  inplace=True
+  def __init__(self, node):
+    self.name = node.name
+    self.input = node.input
+    self.output = node.output
+
+  def toOpSrc(self):
+    return ''
+  
+  def toCallSrc(self, i, o):
+    return ''
+
+class Add(CNode):
+  inplace=True
+  def __init__(self, node):
+    self.name = node.name
+    self.input = node.input
+    self.output = node.output
+    self._attributes = node.attribute
+
+  def toOpSrc(self):
+    return OpImpl.getAdd(self)
+  
+  def toCallSrc(self, i, o):
+    return '{name}({i}, {o});'.format(name=OpImpl.getAddCaller(self), i=i, o=o)
+
+class Mul(CNode):
+  inplace=True
+  def __init__(self, node):
+    self.name = node.name
+    self.input = node.input
+    self.output = node.output
+    self._attributes = node.attribute
+
+  def toOpSrc(self):
+    return OpImpl.getMul(self)
+  
+  def toCallSrc(self, i, o):
+    return '{name}({i}, {o});'.format(name=OpImpl.getMulCaller(self), i=i, o=o)
+
+
 availible_nodes = {
   'Conv': Conv,
   'Gemm': Gemm,
   'Reshape': Reshape,
+  'Cast': Reshape,
   'Relu': Relu,
+  'LeakyRelu': LeakyRelu,
   'MaxPool': MaxPool,
+  'AveragePool': AveragePool,
   'Constant': Constant,
-  'Softmax': Softmax
+  'Softmax': Softmax,
+  'Clip': Clip,
+  'BatchNormalization': BatchNormalization,
+  'Squeeze': Squeeze,
+  'Shape': Shape,
+  'Add': Add,
+  'Mul': Mul
 }
 
 if __name__ == "__main__":
