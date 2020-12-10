@@ -4,6 +4,30 @@ import onnx
 import numpy as np
 from op_impl import *
 
+def broadcastShape(a, b):
+  a_s = tuple(a.shape)
+  b_s = tuple(b.shape)
+  if not all(a_s):
+    return None
+  if not all(b_s):
+    return None
+  
+  if a_s == b_s:
+    return a_s
+  
+  if len(a_s) > len(b_s):
+    b_s = tuple([1]*(len(a_s)-len(b_s))) + b_s
+  else:
+    a_s = tuple([1]*(len(b_s)-len(a_s))) + a_s
+  
+  if not all(any(map(lambda a:a==1, e)) for e in zip(a_s, b_s)):
+    return None
+  
+  return tuple(a*b for a, b in zip(a_s, b_s))
+
+def broadcastable(a, b):
+  return broadcastShape(a, b) is not None
+
 class Layer():
   def __init__(self, name, shape, dType):
     self.name = name
@@ -257,6 +281,19 @@ class Shape(CNode):
   def toCallSrc(self, i, o):
     return ''
 
+class Pad(CNode):
+  inplace=True
+  def __init__(self, node):
+    self.name = node.name
+    self.input = node.input
+    self.output = node.output
+
+  def toOpSrc(self):
+    return ''
+  
+  def toCallSrc(self, i, o):
+    return ''
+
 class Add(CNode):
   inplace=True
   def __init__(self, node):
@@ -302,7 +339,8 @@ availible_nodes = {
   'Squeeze': Squeeze,
   'Shape': Shape,
   'Add': Add,
-  'Mul': Mul
+  'Mul': Mul,
+  'Pad': Pad,
 }
 
 if __name__ == "__main__":

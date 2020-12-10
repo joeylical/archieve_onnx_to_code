@@ -38,9 +38,10 @@ def main():
 
     # load constants
     for weight in model.graph.initializer:
-      array = numpy_helper.to_array(weight)
-      shape = array.shape
-      layers.append(ConstantLayer(weight.name, shape, weight.data_type, array))
+      # array = numpy_helper.to_array(weight)
+      shape = tuple(weight.dims) # array.shape
+#       layers.append(ConstantLayer(weight.name, shape, weight.data_type, np.array([0]))) # numpy_helper.to_array(weight)))
+      layers.append(ConstantLayer(weight.name, shape, weight.data_type, numpy_helper.to_array(weight)))
 
     in_layer, out_layer = [], []
     # create input layer
@@ -97,7 +98,7 @@ def main():
       for l in layers:
         if isinstance(l, ConstantLayer):
           f.write('// layer: {} shape: {}\n'.format(l.name, l.shape))
-          # f.write(l.toArray())
+          f.write(l.toArray())
           f.write('\n\n')
       
       f.write('{ctype} buf1[{size}];\n'.format(ctype=c_data_type[layers[0].data_type], size=size[0]))
@@ -105,23 +106,35 @@ def main():
       f.write('\n\n')
 
       for node in nodes:
-        f.write('//node\n')
-        f.write(node.toOpSrc())
-        f.write('\n\n')
+        op = node.toOpSrc()
+        if len(node.toOpSrc()) > 0:
+          f.write('//node\n')
+          f.write(op)
+          f.write('\n\n')
         
       f.write("void Model(void* input, void* output)\n{\n")
       current_buf = 0
       for i, node in enumerate(nodes):
         if i == 0:
+          f.write('  ')
           f.write(node.toCallSrc('input', 'buf{}'.format(current_buf+1)))
+          f.write('\n')
         elif i == last_alter_node:
+          f.write('  ')
           f.write(node.toCallSrc('buf{}'.format(current_buf+1), 'output'))
+          f.write('\n')
         elif node.inplace:
-          f.write(node.toCallSrc('buf{}'.format(current_buf+1), 'NULL'))
+          caller = node.toCallSrc('buf{}'.format(current_buf+1), 'NULL')
+          if len(caller) > 0:
+            f.write('  ')
+            f.write(caller)
+            f.write('\n')
         else:
+          f.write('  ')
           f.write(node.toCallSrc('buf{}'.format(current_buf+1), 'buf{}'.format(1-current_buf+1)))
+          f.write('\n')
           current_buf = 1 - current_buf
-        f.write('\n')
+        
       f.write('}\n\n')
     os.system('indent -kr -br -i 2 {} >NUL 2>&1'.format(outCFile))
 
