@@ -1,0 +1,11 @@
+- [ ] 封装属性
+  - [ ] Conv
+  - [ ] MaxPool
+  - [ ] Gemm
+  - [ ] AvgPool
+- [ ] 向优化器传递模型信息
+- [ ] 实现CMSIS-NN优化器
+- [ ] 实现NEON指令优化器
+- [ ] 量化训练
+- [ ] 实现tinyyolov2
+- [ ] tinyyolov2剪枝

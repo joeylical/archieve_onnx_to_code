@@ -2,6 +2,7 @@ from functools import reduce
 from operator import mul
 import onnx
 import numpy as np
+import numba
 from op_impl import *
 
 def broadcastShape(a, b):
@@ -42,7 +43,6 @@ class Layer():
   @property
   def size(self):
     if len(self.shape) == 0:
-      print(self.name)
       return 0
     return reduce(mul, self.shape)
     
