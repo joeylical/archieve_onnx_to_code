@@ -4,6 +4,7 @@ import onnx
 import numpy as np
 import numba
 from op_impl import *
+from attributes import makeAttr
 
 def broadcastShape(a, b):
   a_s = tuple(a.shape)
@@ -81,10 +82,13 @@ def getLayerByName(layers, name):
 
 class CNode():
   name = 'base class'
+  def __init__(self, node):
+    self.op_type = node.op_type
 
   def update(self, layers):
     self.input = list(map(lambda i:getLayerByName(layers, i), self.input))
     self.output = list(map(lambda i:getLayerByName(layers, i), self.output))
+    self.attr = makeAttr(self)
   
   def toOpSrc(self):
     return '#error node op {} not implement'.format(self.name)
@@ -112,6 +116,7 @@ def getLayerByName(layers, name):
 class Conv(CNode):
   inplace=False
   def __init__(self, node, relu=False):
+    super().__init__(node)
     self.name = node.name
     self.input = node.input
     self.output = node.output
@@ -127,6 +132,7 @@ class Conv(CNode):
 class Gemm(CNode):
   inplace=False
   def __init__(self, node):
+    super().__init__(node)
     self.name = node.name
     self.input = node.input
     self.output = node.output
@@ -140,6 +146,7 @@ class Gemm(CNode):
 class Reshape(CNode):
   inplace=True
   def __init__(self, node):
+    super().__init__(node)
     self.input = node.input
     self.output = node.output
 
@@ -152,6 +159,7 @@ class Reshape(CNode):
 class Relu(CNode):
   inplace=True
   def __init__(self, node):
+    super().__init__(node)
     self.name = node.name
     self.input = node.input
     self.output = node.output
@@ -165,6 +173,7 @@ class Relu(CNode):
 class LeakyRelu(CNode):
   inplace=True
   def __init__(self, node):
+    super().__init__(node)
     self.name = node.name
     self.input = node.input
     self.output = node.output
@@ -178,6 +187,7 @@ class LeakyRelu(CNode):
 class MaxPool(CNode):
   inplace=False
   def __init__(self, node):
+    super().__init__(node)
     self.name = node.name
     self.input = node.input
     self.output = node.output
@@ -191,6 +201,7 @@ class MaxPool(CNode):
 class AveragePool(CNode):
   inplace=False
   def __init__(self, node):
+    super().__init__(node)
     self.name = node.name
     self.input = node.input
     self.output = node.output
@@ -204,6 +215,7 @@ class AveragePool(CNode):
 class Constant(CNode):
   inplace = True
   def __init__(self, node):
+    super().__init__(node)
     self.name = node.name
     self.input = node.input
     self.output = node.output
@@ -217,6 +229,7 @@ class Constant(CNode):
 class Softmax(CNode):
   inplace=True
   def __init__(self, node):
+    super().__init__(node)
     self.name = node.name
     self.input = node.input
     self.output = node.output
@@ -230,6 +243,7 @@ class Softmax(CNode):
 class Clip(CNode):
   inplace=True
   def __init__(self, node):
+    super().__init__(node)
     self.name = node.name
     self.input = node.input
     self.output = node.output
@@ -244,6 +258,7 @@ class Clip(CNode):
 class BatchNormalization(CNode):
   inplace=True
   def __init__(self, node):
+    super().__init__(node)
     self.name = node.name
     self.input = node.input
     self.output = node.output
@@ -258,6 +273,7 @@ class BatchNormalization(CNode):
 class Squeeze(CNode):
   inplace=True
   def __init__(self, node):
+    super().__init__(node)
     self.name = node.name
     self.input = node.input
     self.output = node.output
@@ -271,6 +287,7 @@ class Squeeze(CNode):
 class Shape(CNode):
   inplace=True
   def __init__(self, node):
+    super().__init__(node)
     self.name = node.name
     self.input = node.input
     self.output = node.output
@@ -284,6 +301,7 @@ class Shape(CNode):
 class Pad(CNode):
   inplace=True
   def __init__(self, node):
+    super().__init__(node)
     self.name = node.name
     self.input = node.input
     self.output = node.output
@@ -297,6 +315,7 @@ class Pad(CNode):
 class Add(CNode):
   inplace=True
   def __init__(self, node):
+    super().__init__(node)
     self.name = node.name
     self.input = node.input
     self.output = node.output
@@ -311,6 +330,7 @@ class Add(CNode):
 class Mul(CNode):
   inplace=True
   def __init__(self, node):
+    super().__init__(node)
     self.name = node.name
     self.input = node.input
     self.output = node.output

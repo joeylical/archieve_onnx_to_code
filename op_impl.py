@@ -53,7 +53,7 @@ conv2d_format = lambda node: {
   'o_x': node.output[0].shape[2],
   'o_y': node.output[0].shape[3],
 
-  'c_strip': node._attributes[-1].ints[0],
+  'c_strides': node.attr.strides[0], # node._attributes[-1].ints[0],
 
   'bias': node.input[2].c_name if len(node.input) >= 3 else 0,
   'conv_l': node.input[1].shape[2],
@@ -102,7 +102,7 @@ class ConvGeneralNoPaddingImpl():
   @staticmethod
   def suitable(node):
     determines = [
-      lambda:node._attributes[3].ints[0] == 0,
+      lambda: all(map(lambda x:x==0, node.attr.pads)), # node._attributes[3].ints[0] == 0,
     ]
     return all(map(apply, determines))
 
@@ -126,8 +126,8 @@ conv2d_padding_format = lambda node:{
   'o_x': node.output[0].shape[2],
   'o_y': node.output[0].shape[3],
 
-  'x_strip': node._attributes[-1].ints[0],
-  'y_strip': node._attributes[-1].ints[1],
+  'x_stride': node.attr.strides[0], # node._attributes[-1].ints[0],
+  'y_stride': node.attr.strides[1], # node._attributes[-1].ints[1],
 
   'bias': node.input[2].c_name if len(node.input) >= 3 else 0,
   'conv_b': -(node.input[1].shape[2]//2),
@@ -161,8 +161,8 @@ void ${name}(void* in, void* out)
           ${ctype} t = ${weight}[o_c][c_i][m-(${conv_b})][n-(${conv_b})];
           if(${ctype}_IS_ZERO(t))
             continue;
-          for(int o_x=(m>=0?0:-m);o_x < ${o_x} - (m<0?0:m) ;o_x += ${x_strip}) {
-            for(int o_y=(n>=0?0:-n);o_y < ${o_y} - (n<0?0:n) ;o_y += ${y_strip}) {
+          for(int o_x=(m>=0?0:-m);o_x < ${o_x} - (m<0?0:m) ;o_x += ${x_stride}) {
+            for(int o_y=(n>=0?0:-n);o_y < ${o_y} - (n<0?0:n) ;o_y += ${y_stride}) {
                 (*o)[o_c][o_x][o_y] += (*i)[c_i][o_x+m][o_y+n] * t;
             } // o_y
           } // o_x
@@ -177,7 +177,7 @@ class ConvGeneralPaddingImpl():
   @staticmethod
   def suitable(node):
     determines = [
-      lambda:node._attributes[3].ints[0] != 0,
+      lambda: any(map(lambda x:x!=0, node.attr.pads)),# node._attributes[3].ints[0] != 0,
     ]
     return all(map(apply, determines))
 
@@ -274,7 +274,7 @@ leakyrelu_format = lambda node:{
   'name': 'op_' + node.name,
   'ctype': c_data_type[node.input[0].data_type],
   'len': node.output[0].size,
-  'alpha': node._attributes[0].f,
+  'alpha': node.attr.alpha, # node._attributes[0].f,
 }
 
 leakyrelu = Template("""
@@ -311,10 +311,10 @@ maxpool_format = lambda node:{
   'i_y': node.input[0].shape[3],
   'o_x': node.output[0].shape[2],
   'o_y': node.output[0].shape[3],
-  'shape_x': node._attributes[0].ints[0],
-  'shape_y': node._attributes[0].ints[1],
-  'strides_x': node._attributes[2].ints[0] if len(node._attributes)>=3 else 0,
-  'strides_y': node._attributes[2].ints[1] if len(node._attributes)>=3 else 0,
+  'shape_x': node.attr.kernel_shape[0], # node._attributes[0].ints[0],
+  'shape_y': node.attr.kernel_shape[1], # node._attributes[0].ints[1],
+  'strides_x': node.attr.strides[0], # node._attributes[2].ints[0] if len(node._attributes)>=3 else 0,
+  'strides_y': node.attr.strides[1], # node._attributes[2].ints[1] if len(node._attributes)>=3 else 0,
 }
 
 maxpool = Template("""
@@ -362,8 +362,8 @@ clip_format = lambda node:{
   'name': 'op_' + node.name,
   'ctype': c_data_type[node.input[0].data_type],
   'size': node.input[0].size,
-  'min': node._attributes[0].f,
-  'max': node._attributes[1].f,
+  'min': node.attr.min, # node._attributes[0].f,
+  'max': node.attr.max, # node._attributes[1].f,
 }
 
 clip = Template("""
@@ -399,7 +399,7 @@ class ClipImpl():
 bn_format = lambda node:{
   'name': 'op_' + node.name,
   'ctype': c_data_type[node.input[0].data_type],
-  'epsilon': node._attributes[0].f,
+  'epsilon': node.attr.epsilon, # node._attributes[0].f,
   'ch': node.input[0].shape[1],
   'size': node.input[0].shape[2] * node.input[0].shape[3],
   'scale': node.input[1].c_name,
@@ -446,10 +446,10 @@ averagepool_format = lambda node:{
   'i_y': node.input[0].shape[3],
   'o_x': node.output[0].shape[2],
   'o_y': node.output[0].shape[3],
-  'shape_x': node._attributes[0].ints[0],
-  'shape_y': node._attributes[0].ints[1],
-  'strides_x': node._attributes[2].ints[0] if len(node._attributes)>=3 else 0,
-  'strides_y': node._attributes[2].ints[1] if len(node._attributes)>=3 else 0,
+  'shape_x': node.attr.kernel_shape[0], # node._attributes[0].ints[0],
+  'shape_y': node.attr.kernel_shape[1], # node._attributes[0].ints[1],
+  'strides_x': node.attr.strides[0], # node._attributes[2].ints[0] if len(node._attributes)>=3 else 0,
+  'strides_y': node.attr.strides[1], # node._attributes[2].ints[1] if len(node._attributes)>=3 else 0,
 }
 
 averagepool = Template("""
