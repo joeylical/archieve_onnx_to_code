@@ -14,7 +14,10 @@ def makeProperty(default, value):
 class ConvAttr():
   def __init__(self, node):
     self._attrs = node._attributes
-    self._pad_mode = getAttrByName(self._attrs, 'auto_pad') or 'NOTSET'
+    _m = getAttrByName(self._attrs, 'auto_pad')
+    if _m is not None:
+      _m = _m.s.decode('ascii')
+    self._pad_mode = _m or 'NOTSET'
     self._dims = len(node.input[0].shape) - 2
     self._wh = node.input[0].shape[2:]
     t = getAttrByName(self._attrs, 'kernel_shape')
@@ -38,16 +41,18 @@ class ConvAttr():
 
   @property
   def pads(self):
-    _auto_pad = getAttrByName(self._attrs, 'auto_pad')
+    _auto_pad = self._pad_mode
     if _auto_pad is None or _auto_pad == 'NOTSET':
       return getAttrByName(self._attrs, 'pads').ints or [0, 0]*self._dims
     elif _auto_pad == 'SAME_UPPER':
       # TODO: caculate padding values
       return [2]*self._dims + [0]*self._dims
-    elif _auto_pad == 'SAME_LOWER ':
+    elif _auto_pad == 'SAME_LOWER':
       return [0]*self._dims + [2]*self._dims
-    elif _auto_pad == 'VALID ':
+    elif _auto_pad == 'VALID':
       return [0, 0]*self._dims
+    else:
+      print(_auto_pad)
 
   @property
   def strides(self):
@@ -56,12 +61,21 @@ class ConvAttr():
 
 class LeakyReluAttr():
   def __init__(self, node):
-    self.alpha = property(lambda _:getAttrByName(node._attributes, 'alpha').f or 0.01)
+    self._alpha = getAttrByName(node._attributes, 'alpha')
+    if self._alpha is not None:
+      self._alpha = self._alpha.f
+  
+  @property
+  def alpha(self):
+    return self._alpha or 0.01
 
 class MaxPoolAttr():
   def __init__(self, node):
     self._attrs = node._attributes
-    self._pad_mode = getAttrByName(self._attrs, 'auto_pad') or 'NOTSET'
+    _m = getAttrByName(self._attrs, 'auto_pad')
+    if _m is not None:
+      _m = _m.s.decode('ascii')
+    self._pad_mode = _m or 'NOTSET'
     self.ceil_mode = property(lambda _: getAttrByName(self._attrs, 'ceil_mode') or 0)
     self._dims = len(node.input[0].shape) - 2
     self._wh = node.input[0].shape[2:]
@@ -86,15 +100,17 @@ class MaxPoolAttr():
 
   @property
   def pads(self):
-    _auto_pad = getAttrByName(self._attrs, 'auto_pad')
+    _auto_pad = self._pad_mode
+    if _auto_pad is not None:
+      _auto_pad = _auto_pad.decode('ascii')
     if _auto_pad is None or _auto_pad == 'NOTSET':
       return getAttrByName(self._attrs) or [0, 0]*self._dims
     elif _auto_pad == 'SAME_UPPER':
       # TODO: caculate padding values
       return [2]*self._dims + [0]*self._dims
-    elif _auto_pad == 'SAME_LOWER ':
+    elif _auto_pad == 'SAME_LOWER':
       return [0]*self._dims + [2]*self._dims
-    elif _auto_pad == 'VALID ':
+    elif _auto_pad == 'VALID':
       return [0, 0]*self._dims
 
   @property
@@ -106,7 +122,10 @@ class MaxPoolAttr():
 class AveragePoolAttr():
   def __init__(self, node):
     self._attrs = node._attributes
-    self._pad_mode = getAttrByName(self._attrs, 'auto_pad') or 'NOTSET'
+    _m = getAttrByName(self._attrs, 'auto_pad')
+    if _m is not None:
+      _m = _m.s.decode('ascii')
+    self._pad_mode = _m or 'NOTSET'
     self._dims = len(node.input[0].shape) - 2
     self._wh = node.input[0].shape[2:]
     t = getAttrByName(self._attrs, 'kernel_shape')
@@ -130,15 +149,17 @@ class AveragePoolAttr():
 
   @property
   def pads(self):
-    _auto_pad = getAttrByName(self._attrs, 'auto_pad')
-    if _auto_pad is None or _auto_pad == 'NOTSET':
+    _auto_pad = self._pad_mode
+    if _auto_pad is not None:
+      _auto_pad = _auto_pad.decode('ascii')
+    if _auto_pad is None or _auto_pad.s == 'NOTSET':
       return getAttrByName(self._attrs) or [0, 0]*self._dims
-    elif _auto_pad == 'SAME_UPPER':
+    elif _auto_pad.s == 'SAME_UPPER':
       # TODO: caculate padding values
       return [2]*self._dims + [0]*self._dims
-    elif _auto_pad == 'SAME_LOWER ':
+    elif _auto_pad.s == 'SAME_LOWER ':
       return [0]*self._dims + [2]*self._dims
-    elif _auto_pad == 'VALID ':
+    elif _auto_pad.s == 'VALID ':
       return [0, 0]*self._dims
 
   @property
@@ -148,12 +169,32 @@ class AveragePoolAttr():
 
 class BatchNormalizationAttr():
   def __init__(self, node):
-    self.epsilon = property(lambda _:getAttrByName(node.attribute, 'epsilon') or 1e-5)
-    self.momentum = property(lambda _:getAttrByName(node.attribute, 'momentum') or 0.9)
+    self._epsilon = getAttrByName(node._attributes, 'epsilon')
+    if self._epsilon is not None:
+      self._epsilon = self._epsilon.f
+  
+  @property
+  def epsilon(self):
+    return self._epsilon or 1e-5
+#     self.epsilon = property(lambda _:_epsilon or 1e-5)
+#     self.momentum = property(lambda _:getAttrByName(node.attribute, 'momentum') or 0.9)
+
+class ClipAttr():
+  def __init__(self, node):
+    self._min = getAttrByName(node._attributes, 'min')
+    self._max = getAttrByName(node._attributes, 'max')
+  
+  @property
+  def max(self):
+    return self._max
+  
+  @property
+  def min(self):
+    return self._min
 
 class PadAttr():
   def __init__(self, node):
-    self.mode = property(lambda _:getAttrByName(node.attribute, 'mode') or 'constant')
+    self.mode = property(lambda _:getAttrByName(node._attributes, 'mode') or 'constant')
 
 class DefaultAttr():
   def __init__(self, node):
@@ -165,6 +206,7 @@ attr_classes = {
   'MaxPool': MaxPoolAttr,
   'AveragePool': AveragePoolAttr,
   'BatchNormalization': BatchNormalizationAttr,
+  'Clip': ClipAttr,
 }
     
 def makeAttr(node):

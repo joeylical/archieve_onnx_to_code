@@ -65,9 +65,9 @@ conv2d = Template("""
 void ${name}(void* in, void* out)
 {
   ${ctype} (*i)[${i_ch}][${i_x}][${i_y}];
-  i = (typeof(i))(in);
+  i = (${ctype} (*)[${i_ch}][${i_x}][${i_y}])(in);
   ${ctype} (*o)[${o_ch}][${o_x}][${o_y}];
-  o = (typeof(o))(out);
+  o = (${ctype} (*)[${o_ch}][${o_x}][${o_y}])(out);
 
   {
     ${ctype} *p = (${ctype}*)((*o));
@@ -140,9 +140,9 @@ conv2d_padding = Template("""
 void ${name}(void* in, void* out)
 {
   ${ctype} (*i)[${i_ch}][${i_x}][${i_y}];
-  i = (typeof(i))(in);
+  i = (${ctype} (*)[${i_ch}][${i_x}][${i_y}])(in);
   ${ctype} (*o)[${o_ch}][${o_x}][${o_y}];
-  o = (typeof(o))(out);
+  o = (${ctype} (*)[${o_ch}][${o_x}][${o_y}])(out);
   
   {
     ${ctype} *p = (${ctype}*)((*o));
@@ -208,9 +208,9 @@ gemm = Template("""
 void ${name}(void* in, void *out)
 {
   ${ctype} (*i)[${i_len}];
-  i = (typeof(i))(in);
+  i = (${ctype} (*)[${i_len}])(in);
   ${ctype} (*o)[${o_len}];
-  o = (typeof(o))(out);
+  o = (${ctype} (*)[${o_len}])(out);
 
   for(int m=0;m<${o_len};m++) {
     ${ctype} sum = ${bias}[m];
@@ -321,9 +321,9 @@ maxpool = Template("""
 void ${name}(void* in, void* out)
 {
   ${ctype} (*i)[${ch}][${i_x}][${i_y}];
-  i = (typeof(i))(in);
+  i = (${ctype} (*)[${ch}][${i_x}][${i_y}])(in);
   ${ctype} (*o)[${ch}][${o_x}][${o_y}];
-  o = (typeof(o))(out);
+  o = (${ctype} (*)[${ch}][${o_x}][${o_y}])(out);
 
   for(int c=0;c<${ch};c++) {
     for(int x=0, o_i=0;x<${i_x};x+=${strides_x}) {
@@ -456,9 +456,9 @@ averagepool = Template("""
 void ${name}(void* in, void* out)
 {
   ${ctype} (*i)[${ch}][${i_x}][${i_y}];
-  i = (typeof(i))(in);
+  i = (${ctype} (*)[${ch}][${i_x}][${i_y}])(in);
   ${ctype} (*o)[${ch}][${o_x}][${o_y}];
-  o = (typeof(o))(out);
+  o = (${ctype} (*)[${ch}][${o_x}][${o_y}])(out);
 
   for(int c=0;c<${ch};c++) {
     for(int x=0, o_i=0;x<${i_x};x+=${strides_x}) {
@@ -469,7 +469,7 @@ void ${name}(void* in, void* out)
               result += (*i)[c][x+m][y+n];
           }
         }
-        (*o)[c][o_i][o_j] = result/(${shape_x}*${shape_y});
+        (*o)[c][o_i][o_j] = result*(1.f/(${shape_x}.f*${shape_y}.f));
         o_j++;
       }
       o_i++;

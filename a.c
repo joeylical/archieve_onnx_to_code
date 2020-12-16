@@ -1,6 +1,6 @@
 #include <stdio.h>
 #include "unistd.h"
-#include "mnist.c"
+#include "mnist_prune.c"
 
 int main(int argc, char* argv[])
 {

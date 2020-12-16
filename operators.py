@@ -34,7 +34,10 @@ class Layer():
   def __init__(self, name, shape, dType):
     self.name = name
     self.data_type = dType
-    self.shape = shape
+    _shape = list(shape)
+    if len(_shape)>0 and _shape[0] == 0:
+      _shape[0] = 1
+    self.shape = tuple(_shape)
     self.c_name = get_layer_c_name(self.name)
     
   def toArray(self):
@@ -174,6 +177,7 @@ class LeakyRelu(CNode):
   inplace=True
   def __init__(self, node):
     super().__init__(node)
+    self._attributes = node.attribute
     self.name = node.name
     self.input = node.input
     self.output = node.output
