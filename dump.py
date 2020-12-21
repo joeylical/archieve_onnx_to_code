@@ -49,6 +49,7 @@ def main():
     # load constants
     for weight in model.graph.initializer:
       shape = tuple(weight.dims)
+#       layers.append(ConstantLayer(weight.name, shape, weight.data_type, np.array([0]))) # numpy_helper.to_array(weight)))
       layers.append(ConstantLayer(weight.name, shape, weight.data_type, numpy_helper.to_array(weight)))
 
     print_time('end load weight')

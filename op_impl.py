@@ -7,6 +7,7 @@ apply = lambda f,*args,**kwargs:f(*args,**kwargs)
 shape_to_c_array_proto = lru_cache()(lambda shape: ''.join(map('[{}]'.format, shape)))
 
 get_layer_c_name = lru_cache()(lambda layer: 'layer_{}'.format(layer.replace('.', '_').replace('/', '_').replace(':', '_')))
+get_node_c_name = lru_cache()(lambda layer: 'op_{}'.format(layer.replace('.', '_').replace('/', '_').replace(':', '_')))
 
 c_data_type = {
   onnx.TensorProto.DataType.FLOAT: 'float',
@@ -42,7 +43,7 @@ get_pointer = lambda tensor, buf: ''.format(
   buf='mem')
 
 conv2d_format = lambda node: {
-  'name': 'op_' + node.name,
+  'name': get_node_c_name(node.name),
   'ctype': c_data_type[node.input[0].data_type],
 
   'i_ch': node.input[0].shape[1],
@@ -55,7 +56,7 @@ conv2d_format = lambda node: {
 
   'c_strides': node.attr.strides[0], # node._attributes[-1].ints[0],
 
-  'bias': node.input[2].c_name if len(node.input) >= 3 else 0,
+  'bias': node.input[2].c_name + '[c]' if len(node.input) >= 3 else 0,
   'conv_l': node.input[1].shape[2],
   'weight': node.input[1].c_name,
 }
@@ -74,7 +75,7 @@ void ${name}(void* in, void* out)
     for(int c=0;c < ${o_ch};c++) {
       int cnt=0;
       while(cnt++ < ${o_x}*${o_y}) {
-        *p++ = ${bias}[c];
+        *p++ = ${bias};
       }
     }
   }
@@ -115,7 +116,7 @@ class ConvGeneralNoPaddingImpl():
     return '{}'.format(conv2d_format(node)['name'])
 
 conv2d_padding_format = lambda node:{
-  'name': 'op_' + node.name,
+  'name': get_node_c_name(node.name),
   'ctype': c_data_type[node.input[0].data_type],
 
   'i_ch': node.input[0].shape[1],
@@ -129,7 +130,7 @@ conv2d_padding_format = lambda node:{
   'x_stride': node.attr.strides[0], # node._attributes[-1].ints[0],
   'y_stride': node.attr.strides[1], # node._attributes[-1].ints[1],
 
-  'bias': node.input[2].c_name if len(node.input) >= 3 else 0,
+  'bias': node.input[2].c_name + '[c]' if len(node.input) >= 3 else 0,
   'conv_b': -(node.input[1].shape[2]//2),
   'conv_e': (node.input[1].shape[2]//2),
   'weight': node.input[1].c_name,
@@ -149,7 +150,7 @@ void ${name}(void* in, void* out)
     for(int c=0;c < ${o_ch};c++) {
       int cnt=0;
       while(cnt++ < ${o_x}*${o_y}) {
-        *p++ = ${bias}[c];
+        *p++ = ${bias};
       }
     }
   }
@@ -195,7 +196,7 @@ conv_optimizer = [
 ]
 
 gemm_format = lambda node:{
-  'name': 'op_' + node.name,
+  'name': get_node_c_name(node.name),
   'ctype': c_data_type[node.input[0].data_type],
   'o_len': node.output[0].shape[1],
   'i_len': node.input[0].shape[1],
@@ -240,7 +241,7 @@ gemm_optimizer = [
 ]
 
 relu_format = lambda node:{
-  'name': 'op_' + node.name,
+  'name': get_node_c_name(node.name),
   'ctype': c_data_type[node.input[0].data_type],
   'len': node.output[0].size,
 }
@@ -271,7 +272,7 @@ class ReluImpl():
     return '{}'.format(relu_format(node)['name'])
 
 leakyrelu_format = lambda node:{
-  'name': 'op_' + node.name,
+  'name': get_node_c_name(node.name),
   'ctype': c_data_type[node.input[0].data_type],
   'len': node.output[0].size,
   'alpha': node.attr.alpha, # node._attributes[0].f,
@@ -303,7 +304,7 @@ class LeakyReluImpl():
     return '{}'.format(leakyrelu_format(node)['name'])
 
 maxpool_format = lambda node:{
-  'name': 'op_' + node.name,
+  'name': get_node_c_name(node.name),
   'ctype': c_data_type[node.input[0].data_type],
   'ctype_min': min_value[node.input[0].data_type],
   'ch': node.input[0].shape[1],
@@ -359,7 +360,7 @@ class MaxPoolImpl():
     return '{}'.format(maxpool_format(node)['name'])
 
 clip_format = lambda node:{
-  'name': 'op_' + node.name,
+  'name': get_node_c_name(node.name),
   'ctype': c_data_type[node.input[0].data_type],
   'size': node.input[0].size,
   'min': node.attr.min, # node._attributes[0].f,
@@ -397,7 +398,7 @@ class ClipImpl():
     return '{}'.format(clip_format(node)['name'])
 
 bn_format = lambda node:{
-  'name': 'op_' + node.name,
+  'name': get_node_c_name(node.name),
   'ctype': c_data_type[node.input[0].data_type],
   'epsilon': node.attr.epsilon, # node._attributes[0].f,
   'ch': node.input[0].shape[1],
@@ -418,7 +419,7 @@ void ${name}(void* in, void* out)
     ${ctype}* p = (typeof(p))((*i)[c]);
     int cnt = 0;
     while(cnt++ < ${size}) {
-      *p = ${scale}[c] * (*p - ${mean}[c]) / sqrtf(${var}[c]*${var}[c] + ${epsilon}[c]) + ${bias}[c];
+      *p = ${scale}[c] * (*p - ${mean}[c]) / sqrtf(${var}[c]*${var}[c] + ${epsilon}) + ${bias}[c];
     }
   }
 }
@@ -438,7 +439,7 @@ class BnImpl():
     return '{}'.format(bn_format(node)['name'])
 
 averagepool_format = lambda node:{
-  'name': 'op_' + node.name,
+  'name': get_node_c_name(node.name),
   'ctype': c_data_type[node.input[0].data_type],
   'ctype_min': min_value[node.input[0].data_type],
   'ch': node.input[0].shape[1],
@@ -492,7 +493,7 @@ class AveragePoolImpl():
     return '{}'.format(averagepool_format(node)['name'])
 
 mul_format = lambda node:{
-  'name': 'op_' + node.name,
+  'name': get_node_c_name(node.name),
   'ctype': c_data_type[node.input[0].data_type],
   'size': node.input[0].size,
   'B': node.input[1].c_name,
@@ -524,7 +525,7 @@ class MulImpl():
     return '{}'.format(mul_format(node)['name'])
 
 add_format = lambda node:{
-  'name': 'op_' + node.name,
+  'name': get_node_c_name(node.name),
   'ctype': c_data_type[node.input[1].data_type],
   'B': node.input[0].c_name,
   'ch': node.input[1].shape[1],
@@ -538,7 +539,7 @@ void ${name}(void* in, void* out)
   ${ctype} (*i)[${ch}][${i_x}][${i_y}] = (typeof(i))(in);
 
   for(int a=0;a<${ch};a++) {
-    if(${B}[ch][0][0] == 0)
+    if(${B}[a][0][0] == 0)
       continue;
     for(int b=0;b<${i_x};b++) {
       for(int c=0;c<${i_y};c++) {

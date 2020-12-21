@@ -183,14 +183,18 @@ class ClipAttr():
   def __init__(self, node):
     self._min = getAttrByName(node._attributes, 'min')
     self._max = getAttrByName(node._attributes, 'max')
+    if self._max is not None:
+      self._max = self._max.f
+    if self._min is not None:
+      self._min = self._min.f
   
   @property
   def max(self):
-    return self._max
+    return self._max or 0.0
   
   @property
   def min(self):
-    return self._min
+    return self._min or 0.0
 
 class PadAttr():
   def __init__(self, node):
