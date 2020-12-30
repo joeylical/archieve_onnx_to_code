@@ -42,6 +42,93 @@ get_pointer = lambda tensor, buf: ''.format(
   dims=shape_to_c_array_proto(tensor.shape),
   buf='mem')
 
+conv2d_general_format = lambda node: {
+  'name': get_node_c_name(node.name),
+  'ctype': c_data_type[node.input[0].data_type],
+
+  'i_ch': node.input[0].shape[1],
+  'i_x': node.input[0].shape[2],
+  'i_y': node.input[0].shape[3],
+
+  'o_ch': node.output[0].shape[1],
+  'o_x': node.output[0].shape[2],
+  'o_y': node.output[0].shape[3],
+  
+  'pads0': node.attr.pads[0],
+  'pads1': node.attr.pads[1],
+  'pads2': node.attr.pads[2],
+  'pads3': node.attr.pads[3],
+  
+  'c_strides': node.attr.strides[0], # node._attributes[-1].ints[0],
+
+  'bias': node.input[2].c_name + '[c]' if len(node.input) >= 3 else 0,
+  'conv_l': node.input[1].shape[2],
+  'weight': node.input[1].c_name,
+}
+
+conv2d_general = Template("""
+// ${i_ch}x${i_x}x${i_y} => ${o_ch}x${o_x}x${o_y}
+void ${name}(void* in, void* out)
+{
+  ${ctype} (*i)[${i_ch}][${i_x}][${i_y}];
+  i = (${ctype} (*)[${i_ch}][${i_x}][${i_y}])(in);
+  ${ctype} (*o)[${o_ch}][${o_x}][${o_y}];
+  o = (${ctype} (*)[${o_ch}][${o_x}][${o_y}])(out);
+  ${ctype} (*temp)[${i_ch}][${i_x}+${pads0}+${pads2}][${i_y}+${pads1}+${pads3}] = (typeof(temp))malloc(sizeof(temp));
+  {
+    for(int a=0;a<${i_ch};a++) {
+      for(int b=${pads0};b<${i_x}+${pads0};b++) {
+        memcpy((*temp)[a][b]+${pads1}, (*i)[a][b], ${i_y}*sizeof(${ctype}));
+      }
+    }
+  }
+
+  {
+    ${ctype} *p = (${ctype}*)(out);
+    for(int c=0;c < ${o_ch};c++) {
+      int cnt=0;
+      while(cnt++ < ${o_x}*${o_y}) {
+        *p++ = ${bias};
+      }
+    }
+  }
+
+  for(int c_i=0;c_i < ${i_ch};c_i++) {
+    for(int m=0;m < ${conv_l};m++) {
+      for(int n=0;n < ${conv_l};n++) {
+        for(int c=0;c<${o_ch};c++) {
+          ${ctype} t = ${weight}[c][c_i][m][n];
+          if(${ctype}_IS_ZERO(t))
+            continue;
+          for(int x=0;x<${o_x};x++) {
+            for(int y=0;y<${o_y};y++) {
+              (*o)[c][x][y] += (*temp)[c_i][x+m][y+n] * t;
+            }
+          }
+        }
+      }
+    }
+  }
+  free(*temp);
+}
+""", strict_undefined=True)
+
+class ConvGeneralImpl():
+  @staticmethod
+  def suitable(node):
+    determines = [
+      lambda: True, # node._attributes[3].ints[0] == 0,
+    ]
+    return all(map(apply, determines))
+
+  @staticmethod
+  def getOp(node):
+    return conv2d_general.render(**conv2d_general_format(node))
+
+  @staticmethod
+  def getOpName(node):
+    return '{}'.format(conv2d_general_format(node)['name'])
+
 conv2d_format = lambda node: {
   'name': get_node_c_name(node.name),
   'ctype': c_data_type[node.input[0].data_type],
@@ -71,7 +158,7 @@ void ${name}(void* in, void* out)
   o = (${ctype} (*)[${o_ch}][${o_x}][${o_y}])(out);
 
   {
-    ${ctype} *p = (${ctype}*)((*o));
+    ${ctype} *p = (${ctype}*)(out);
     for(int c=0;c < ${o_ch};c++) {
       int cnt=0;
       while(cnt++ < ${o_x}*${o_y}) {
@@ -126,9 +213,9 @@ conv2d_padding_format = lambda node:{
   'o_ch': node.output[0].shape[1],
   'o_x': node.output[0].shape[2],
   'o_y': node.output[0].shape[3],
-
-  'x_stride': node.attr.strides[0], # node._attributes[-1].ints[0],
-  'y_stride': node.attr.strides[1], # node._attributes[-1].ints[1],
+  
+  'x_stride': node.attr.strides[0],
+  'y_stride': node.attr.strides[1],
 
   'bias': node.input[2].c_name + '[c]' if len(node.input) >= 3 else 0,
   'conv_b': -(node.input[1].shape[2]//2),
@@ -146,7 +233,7 @@ void ${name}(void* in, void* out)
   o = (${ctype} (*)[${o_ch}][${o_x}][${o_y}])(out);
   
   {
-    ${ctype} *p = (${ctype}*)((*o));
+    ${ctype} *p = (${ctype}*)(out);
     for(int c=0;c < ${o_ch};c++) {
       int cnt=0;
       while(cnt++ < ${o_x}*${o_y}) {
@@ -178,7 +265,7 @@ class ConvGeneralPaddingImpl():
   @staticmethod
   def suitable(node):
     determines = [
-      lambda: any(map(lambda x:x!=0, node.attr.pads)),# node._attributes[3].ints[0] != 0,
+      lambda: any(map(lambda x:x==1, node.attr.pads)),# node._attributes[3].ints[0] != 0,
     ]
     return all(map(apply, determines))
 
@@ -190,9 +277,157 @@ class ConvGeneralPaddingImpl():
   def getOpName(node):
     return '{}'.format(conv2d_padding_format(node)['name'])
 
+
+depthwise_conv2d_padding_format = lambda node: {
+  'name': get_node_c_name(node.name),
+  'ctype': c_data_type[node.input[0].data_type],
+
+  'i_ch': node.input[0].shape[1],
+  'i_x': node.input[0].shape[2],
+  'i_y': node.input[0].shape[3],
+
+  'o_x': node.output[0].shape[2],
+  'o_y': node.output[0].shape[3],
+
+  'x_stride': node.attr.strides[0],
+  'y_stride': node.attr.strides[1],
+
+  'bias': node.input[2].c_name + '[c]' if len(node.input) >= 3 else 0,
+  'conv_b': -(node.input[1].shape[2] // 2),
+  'conv_e': (node.input[1].shape[2] // 2),
+  'weight': node.input[1].c_name,
+}
+
+depthwise_conv2d_padding = Template("""
+// ${i_ch}x${i_x}x${i_y} => ${i_ch}x${o_x}x${o_y}
+void ${name}(void* in, void* out)
+{
+  ${ctype} (*i)[${i_ch}][${i_x}][${i_y}];
+  i = (${ctype} (*)[${i_ch}][${i_x}][${i_y}])(in);
+  ${ctype} (*o)[${i_ch}][${o_x}][${o_y}];
+  o = (${ctype} (*)[${i_ch}][${o_x}][${o_y}])(out);
+
+  {
+    ${ctype} *p = (${ctype}*)(out);
+    for(int c=0;c < ${i_ch};c++) {
+      int cnt=0;
+      while(cnt++ < ${o_x}*${o_y}) {
+        *p++ = ${bias};
+      }
+    }
+  }
+
+  for(int c_i=0;c_i < ${i_ch};c_i++) {
+    for(int m=${conv_b};m <= ${conv_e};m++) {
+      for(int n=${conv_b};n <= ${conv_e};n++) {
+        ${ctype} t = ${weight}[c_i][0][m-(${conv_b})][n-(${conv_b})];
+        if(${ctype}_IS_ZERO(t))
+          continue;
+        for(int o_x=(m>=0?0:-m);o_x < ${o_x} - (m<0?0:m) ;o_x += ${x_stride}) {
+          for(int o_y=(n>=0?0:-n);o_y < ${o_y} - (n<0?0:n) ;o_y += ${y_stride}) {
+              (*o)[c_i][o_x][o_y] += (*i)[c_i][o_x+m][o_y+n] * t;
+          } // o_y
+        } // o_x
+      } // n
+    } // m
+  } // c_i
+}
+""", strict_undefined=True)
+
+
+class DepthwiseConvGeneralPaddingImpl():
+  @staticmethod
+  def suitable(node):
+    determines = [
+      lambda: any(map(lambda x: x != 0, node.attr.pads)) and node.attr.group==node.input[0].shape[1],
+    ]
+    return all(map(apply, determines))
+
+  @staticmethod
+  def getOp(node):
+    print(node.name)
+    return depthwise_conv2d_padding.render(**depthwise_conv2d_padding_format(node))
+
+  @staticmethod
+  def getOpName(node):
+    return '{}'.format(depthwise_conv2d_padding_format(node)['name'])
+
+depthwise_conv2d_format = lambda node: {
+  'name': get_node_c_name(node.name),
+  'ctype': c_data_type[node.input[0].data_type],
+
+  'i_ch': node.input[0].shape[1],
+  'i_x': node.input[0].shape[2],
+  'i_y': node.input[0].shape[3],
+
+  'o_x': node.output[0].shape[2],
+  'o_y': node.output[0].shape[3],
+
+  'c_strides': node.attr.strides[0], # node._attributes[-1].ints[0],
+
+  'bias': node.input[2].c_name + '[c]' if len(node.input) >= 3 else 0,
+  'conv_l': node.input[1].shape[2],
+  'weight': node.input[1].c_name,
+}
+
+depthwise_conv2d = Template("""
+// ${i_ch}x${i_x}x${i_y} => ${i_ch}x${o_x}x${o_y}
+void ${name}(void* in, void* out)
+{
+  ${ctype} (*i)[${i_ch}][${i_x}][${i_y}];
+  i = (${ctype} (*)[${i_ch}][${i_x}][${i_y}])(in);
+  ${ctype} (*o)[${i_ch}][${o_x}][${o_y}];
+  o = (${ctype} (*)[${i_ch}][${o_x}][${o_y}])(out);
+
+  {
+    ${ctype} *p = (${ctype}*)(out);
+    for(int c=0;c < ${i_ch};c++) {
+      int cnt=0;
+      while(cnt++ < ${o_x}*${o_y}) {
+        *p++ = ${bias};
+      }
+    }
+  }
+
+  for(int c_i=0;c_i < ${i_ch};c_i++) {
+    for(int m=0;m < ${conv_l};m++) {
+      for(int n=0;n < ${conv_l};n++) {
+        ${ctype} t = ${weight}[c_i][0][m][n];
+        if(${ctype}_IS_ZERO(t))
+          continue;
+        for(int x=0;x<${o_x};x++) {
+          for(int y=0;y<${o_y};y++) {
+            (*o)[c_i][x][y] += (*i)[c_i][x+m][y+n] * t;
+          }
+        }
+      }
+    }
+  }
+}
+""", strict_undefined=True)
+
+class DepthwiseConvGeneralNoPaddingImpl():
+  @staticmethod
+  def suitable(node):
+    determines = [
+      lambda: all(map(lambda x:x==0, node.attr.pads)) and node.attr.group==node.input[0].shape[1], # node._attributes[3].ints[0] == 0,
+    ]
+    return all(map(apply, determines))
+
+  @staticmethod
+  def getOp(node):
+    return depthwise_conv2d.render(**depthwise_conv2d_format(node))
+
+  @staticmethod
+  def getOpName(node):
+    return '{}'.format(depthwise_conv2d_format(node)['name'])
+  
 conv_optimizer = [
+  DepthwiseConvGeneralNoPaddingImpl,
+  DepthwiseConvGeneralPaddingImpl,
   ConvGeneralPaddingImpl,
   ConvGeneralNoPaddingImpl,
+  ConvGeneralImpl,
 ]
 
 gemm_format = lambda node:{
@@ -419,7 +654,7 @@ void ${name}(void* in, void* out)
     ${ctype}* p = (typeof(p))((*i)[c]);
     int cnt = 0;
     while(cnt++ < ${size}) {
-      *p = ${scale}[c] * (*p - ${mean}[c]) / sqrtf(${var}[c]*${var}[c] + ${epsilon}) + ${bias}[c];
+      (*i)[c][cnt] = ${scale}[c] * ((*i)[c][cnt] - ${mean}[c]) / sqrtf(${var}[c]*${var}[c] + ${epsilon}) + ${bias}[c];
     }
   }
 }

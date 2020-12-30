@@ -102,7 +102,7 @@ def main():
       f.write('#include <math.h>')
       f.write('\n\n')
 
-      f.write('#define float_IS_ZERO(value) ((value) > -0.0001f && (value) < 0.0001f)\n')
+      f.write('#define float_IS_ZERO(value) 0 //((value) > -0.00001f && (value) < 0.00001f)\n')
       f.write('#define uint8_t_IS_ZERO(value) (!(value))\n')
       f.write('\n\n')
 
@@ -112,8 +112,10 @@ def main():
           f.write(l.toArray())
           f.write('\n\n')
       
-      f.write('{ctype} buf1[{size}];\n'.format(ctype=c_data_type[layers[0].data_type], size=size[0]))
-      f.write('{ctype} buf2[{size}];\n'.format(ctype=c_data_type[layers[0].data_type], size=size[1]))
+#       f.write('{ctype} buf1[{size}];\n'.format(ctype=c_data_type[layers[0].data_type], size=size[0]))
+#       f.write('{ctype} buf2[{size}];\n'.format(ctype=c_data_type[layers[0].data_type], size=size[1]))
+      f.write('float buf1[{size}];\n'.format(size=size[0]))
+      f.write('float buf2[{size}];\n'.format(size=size[1]))
       f.write('\n\n')
 
       for node in nodes:
@@ -125,8 +127,13 @@ def main():
         
       f.write("void Model(void* input, void* output)\n{\n")
       current_buf = 0
+      is_first = True
       for i, node in enumerate(nodes):
-        if i == 0:
+        test_str = node.toCallSrc('a', 'a')
+        if len(test_str) == 0:
+          continue
+        if is_first:
+          is_first = False
           f.write('  ')
           f.write(node.toCallSrc('input', 'buf{}'.format(current_buf+1)))
           f.write('\n')

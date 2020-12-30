@@ -1,8 +1,8 @@
-- [ ] 封装属性
-  - [ ] Conv
-  - [ ] MaxPool
-  - [ ] Gemm
-  - [ ] AvgPool
+- [x] 封装属性
+  - [x] Conv
+  - [x] MaxPool
+  - [x] Gemm
+  - [x] AvgPool
 - [ ] 向优化器传递模型信息
 - [ ] 实现CMSIS-NN优化器
 - [ ] 实现NEON指令优化器

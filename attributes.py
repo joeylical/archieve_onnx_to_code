@@ -59,6 +59,14 @@ class ConvAttr():
       _strides = getAttrByName(self._attrs, 'strides')
       return _strides.ints or [1]*self._dims
 
+  @property
+  def group(self):
+    _groups = getAttrByName(self._attrs, 'group')
+    if _groups is None:
+      return 1
+    else:
+      return _groups.i
+
 class LeakyReluAttr():
   def __init__(self, node):
     self._alpha = getAttrByName(node._attributes, 'alpha')
