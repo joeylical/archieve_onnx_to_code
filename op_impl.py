@@ -25,7 +25,7 @@ c_data_type = {
 }
 
 min_value = {
-  onnx.TensorProto.DataType.FLOAT: '-FLT_MIN',
+  onnx.TensorProto.DataType.FLOAT: '-FLT_MAX',
   onnx.TensorProto.DataType.UINT8: '0',
   onnx.TensorProto.DataType.INT8: 'SCHAR_MIN',
   onnx.TensorProto.DataType.INT16: 'SHRT_MIN',
@@ -59,7 +59,8 @@ conv2d_general_format = lambda node: {
   'pads2': node.attr.pads[2],
   'pads3': node.attr.pads[3],
   
-  'c_strides': node.attr.strides[0], # node._attributes[-1].ints[0],
+  'strides_x': node.attr.strides[0],
+  'strides_y': node.attr.strides[1],
 
   'bias': node.input[2].c_name + '[c]' if len(node.input) >= 3 else 0,
   'conv_l': node.input[1].shape[2],
@@ -74,7 +75,8 @@ void ${name}(void* in, void* out)
   i = (${ctype} (*)[${i_ch}][${i_x}][${i_y}])(in);
   ${ctype} (*o)[${o_ch}][${o_x}][${o_y}];
   o = (${ctype} (*)[${o_ch}][${o_x}][${o_y}])(out);
-  ${ctype} (*temp)[${i_ch}][${i_x}+${pads0}+${pads2}][${i_y}+${pads1}+${pads3}] = (typeof(temp))malloc(sizeof(temp));
+  ${ctype} (*temp)[${i_ch}][${i_x}+${pads0}+${pads2}][${i_y}+${pads1}+${pads3}] = (typeof(temp))malloc(sizeof(*temp));
+  memset(*temp, 0, sizeof(*temp));
   {
     for(int a=0;a<${i_ch};a++) {
       for(int b=${pads0};b<${i_x}+${pads0};b++) {
@@ -93,19 +95,18 @@ void ${name}(void* in, void* out)
     }
   }
 
-  for(int c_i=0;c_i < ${i_ch};c_i++) {
-    for(int m=0;m < ${conv_l};m++) {
-      for(int n=0;n < ${conv_l};n++) {
-        for(int c=0;c<${o_ch};c++) {
-          ${ctype} t = ${weight}[c][c_i][m][n];
-          if(${ctype}_IS_ZERO(t))
-            continue;
-          for(int x=0;x<${o_x};x++) {
-            for(int y=0;y<${o_y};y++) {
-              (*o)[c][x][y] += (*temp)[c_i][x+m][y+n] * t;
+  for(int c=0;c<${o_ch};c++) {
+    for(int x=0;x<${o_x};x++) {
+      for(int y=0;y<${o_y};y++) {
+        double sum = 0.0;
+        for(int c_i=0;c_i < ${i_ch};c_i++) {
+          for(int m=0;m < ${conv_l};m++) {
+            for(int n=0;n < ${conv_l};n++) {
+              sum += (*temp)[c_i][x*${strides_x}+m][y*${strides_y}+n] * ${weight}[c][c_i][m][n];
             }
           }
         }
+        (*o)[c][x][y] += sum;
       }
     }
   }
@@ -128,6 +129,91 @@ class ConvGeneralImpl():
   @staticmethod
   def getOpName(node):
     return '{}'.format(conv2d_general_format(node)['name'])
+  
+depthwise_conv2d_general_format = lambda node: {
+  'name': get_node_c_name(node.name),
+  'ctype': c_data_type[node.input[0].data_type],
+
+  'i_ch': node.input[0].shape[1],
+  'i_x': node.input[0].shape[2],
+  'i_y': node.input[0].shape[3],
+
+  'o_x': node.output[0].shape[2],
+  'o_y': node.output[0].shape[3],
+  
+  'pads0': node.attr.pads[0],
+  'pads1': node.attr.pads[1],
+  'pads2': node.attr.pads[2],
+  'pads3': node.attr.pads[3],
+  
+  'strides_x': node.attr.strides[0],
+  'strides_y': node.attr.strides[1],
+
+  'bias': node.input[2].c_name + '[c]' if len(node.input) >= 3 else 0,
+  'conv_l': node.input[1].shape[2],
+  'weight': node.input[1].c_name,
+}
+  
+depthwise_conv2d_general = Template("""
+// ${i_ch}x${i_x}x${i_y} => ${i_ch}x${o_x}x${o_y}
+void ${name}(void* in, void* out)
+{
+  ${ctype} (*i)[${i_ch}][${i_x}][${i_y}];
+  i = (${ctype} (*)[${i_ch}][${i_x}][${i_y}])(in);
+  ${ctype} (*o)[${i_ch}][${o_x}][${o_y}];
+  o = (${ctype} (*)[${i_ch}][${o_x}][${o_y}])(out);
+  ${ctype} (*temp)[${i_ch}][${i_x}+${pads0}+${pads2}][${i_y}+${pads1}+${pads3}] = (typeof(temp))malloc(sizeof(*temp));
+  memset(*temp, 0, sizeof(*temp));
+  {
+    for(int a=0;a<${i_ch};a++) {
+      for(int b=${pads0};b<${i_x}+${pads0};b++) {
+        memcpy((*temp)[a][b]+${pads1}, (*i)[a][b], ${i_y}*sizeof(${ctype}));
+      }
+    }
+  }
+
+  {
+    ${ctype} *p = (${ctype}*)(out);
+    for(int c=0;c < ${i_ch};c++) {
+      int cnt=0;
+      while(cnt++ < ${o_x}*${o_y}) {
+        *p++ = ${bias};
+      }
+    }
+  }
+
+  for(int c_i=0;c_i < ${i_ch};c_i++) {
+    for(int x=0;x<${o_x};x++) {
+      for(int y=0;y<${o_y};y++) {
+        double sum = 0;
+        for(int m=0;m < ${conv_l};m++) {
+          for(int n=0;n < ${conv_l};n++) {
+            sum += (*temp)[c_i][x*${strides_x}+m][y*${strides_y}+n] * ${weight}[c_i][0][m][n];
+          }
+        }
+        (*o)[c_i][x][y] += sum;
+      }
+    }
+  }
+  free(*temp);
+}
+""", strict_undefined=True)
+
+class DepthwiseConvGeneralImpl():
+  @staticmethod
+  def suitable(node):
+    determines = [
+      lambda: node.attr.group==node.input[0].shape[1], # node._attributes[3].ints[0] == 0,
+    ]
+    return all(map(apply, determines))
+
+  @staticmethod
+  def getOp(node):
+    return depthwise_conv2d_general.render(**depthwise_conv2d_general_format(node))
+
+  @staticmethod
+  def getOpName(node):
+    return '{}'.format(depthwise_conv2d_general_format(node)['name'])
 
 conv2d_format = lambda node: {
   'name': get_node_c_name(node.name),
@@ -141,7 +227,8 @@ conv2d_format = lambda node: {
   'o_x': node.output[0].shape[2],
   'o_y': node.output[0].shape[3],
 
-  'c_strides': node.attr.strides[0], # node._attributes[-1].ints[0],
+  'strides_x': node.attr.strides[0],
+  'strides_y': node.attr.strides[1],
 
   'bias': node.input[2].c_name + '[c]' if len(node.input) >= 3 else 0,
   'conv_l': node.input[1].shape[2],
@@ -167,19 +254,18 @@ void ${name}(void* in, void* out)
     }
   }
 
-  for(int c_i=0;c_i < ${i_ch};c_i++) {
-    for(int m=0;m < ${conv_l};m++) {
-      for(int n=0;n < ${conv_l};n++) {
-        for(int c=0;c<${o_ch};c++) {
-          ${ctype} t = ${weight}[c][c_i][m][n];
-          if(${ctype}_IS_ZERO(t))
-            continue;
-          for(int x=0;x<${o_x};x++) {
-            for(int y=0;y<${o_y};y++) {
-              (*o)[c][x][y] += (*i)[c_i][x+m][y+n] * t;
+  for(int c=0;c<${o_ch};c++) {
+    for(int x=0;x<${o_x};x++) {
+      for(int y=0;y<${o_y};y++) {
+        double sum = 0.0;
+        for(int c_i=0;c_i < ${i_ch};c_i++) {
+          for(int m=0;m < ${conv_l};m++) {
+            for(int n=0;n < ${conv_l};n++) {
+             sum += (*i)[c_i][x*${strides_x}+m][y*${strides_y}+n] * ${weight}[c][c_i][m][n];
             }
           }
         }
+        (*o)[c][x][y] += sum;
       }
     }
   }
@@ -242,19 +328,26 @@ void ${name}(void* in, void* out)
     }
   }
   
-  for(int c_i=0;c_i < ${i_ch};c_i++) {
-    for(int m=${conv_b};m <= ${conv_e};m++) {
-      for(int n=${conv_b};n <= ${conv_e};n++) {
-        for(int o_c=0;o_c < ${o_ch} ;o_c++) {
-          ${ctype} t = ${weight}[o_c][c_i][m-(${conv_b})][n-(${conv_b})];
-          if(${ctype}_IS_ZERO(t))
-            continue;
-          for(int o_x=(m>=0?0:-m);o_x < ${o_x} - (m<0?0:m) ;o_x += ${x_stride}) {
-            for(int o_y=(n>=0?0:-n);o_y < ${o_y} - (n<0?0:n) ;o_y += ${y_stride}) {
-                (*o)[o_c][o_x][o_y] += (*i)[c_i][o_x+m][o_y+n] * t;
+  for(int o_c=0;o_c < ${o_ch} ;o_c++) {
+    for(int o_x=0;o_x < ${o_x};o_x += ${x_stride}) {
+      for(int o_y=0;o_y < ${o_y};o_y += ${y_stride}) {
+        double sum = 0.0;
+        for(int c_i=0;c_i < ${i_ch};c_i++) {
+          for(int m=${conv_b};m <= ${conv_e};m++) {
+            for(int n=${conv_b};n <= ${conv_e};n++) {
+              if(o_x+m<0)
+                continue;
+              if(o_y+n<0)
+                continue;
+              if(o_x+m >= ${o_x})
+                continue;
+              if(o_y+n >= ${o_y})
+                continue;
+              sum += (*i)[c_i][o_x+m][o_y+n] * ${weight}[o_c][c_i][m-(${conv_b})][n-(${conv_b})];
             } // o_y
           } // o_x
         } // o_c
+        (*o)[o_c][o_x][o_y] += sum;
       } // n
     } // m
   } // c_i
@@ -265,7 +358,7 @@ class ConvGeneralPaddingImpl():
   @staticmethod
   def suitable(node):
     determines = [
-      lambda: any(map(lambda x:x==1, node.attr.pads)),# node._attributes[3].ints[0] != 0,
+      lambda: all(map(lambda x:x==1, node.attr.pads)),# node._attributes[3].ints[0] != 0,
     ]
     return all(map(apply, determines))
 
@@ -318,16 +411,23 @@ void ${name}(void* in, void* out)
   }
 
   for(int c_i=0;c_i < ${i_ch};c_i++) {
-    for(int m=${conv_b};m <= ${conv_e};m++) {
-      for(int n=${conv_b};n <= ${conv_e};n++) {
-        ${ctype} t = ${weight}[c_i][0][m-(${conv_b})][n-(${conv_b})];
-        if(${ctype}_IS_ZERO(t))
-          continue;
-        for(int o_x=(m>=0?0:-m);o_x < ${o_x} - (m<0?0:m) ;o_x += ${x_stride}) {
-          for(int o_y=(n>=0?0:-n);o_y < ${o_y} - (n<0?0:n) ;o_y += ${y_stride}) {
-              (*o)[c_i][o_x][o_y] += (*i)[c_i][o_x+m][o_y+n] * t;
-          } // o_y
-        } // o_x
+    for(int o_x=0;o_x < ${o_x};o_x += ${x_stride}) {
+      for(int o_y=0;o_y < ${o_y};o_y += ${y_stride}) {
+        double sum = 0.0;
+          for(int m=${conv_b};m <= ${conv_e};m++) {
+            for(int n=${conv_b};n <= ${conv_e};n++) {
+              if(o_x+m<0)
+                continue;
+              if(o_y+n<0)
+                continue;
+              if(o_x+m >= ${o_x})
+                continue;
+              if(o_y+n >= ${o_y})
+                continue;
+              sum += (*i)[c_i][o_x+m][o_y+n] * ${weight}[c_i][0][m-(${conv_b})][n-(${conv_b})];
+            } // o_y
+          } // o_x
+        (*o)[c_i][o_x][o_y] += sum;
       } // n
     } // m
   } // c_i
@@ -339,13 +439,12 @@ class DepthwiseConvGeneralPaddingImpl():
   @staticmethod
   def suitable(node):
     determines = [
-      lambda: any(map(lambda x: x != 0, node.attr.pads)) and node.attr.group==node.input[0].shape[1],
+      lambda: all(map(lambda x: x ==1, node.attr.pads)) and node.attr.group==node.input[0].shape[1],
     ]
     return all(map(apply, determines))
 
   @staticmethod
   def getOp(node):
-    print(node.name)
     return depthwise_conv2d_padding.render(**depthwise_conv2d_padding_format(node))
 
   @staticmethod
@@ -363,7 +462,8 @@ depthwise_conv2d_format = lambda node: {
   'o_x': node.output[0].shape[2],
   'o_y': node.output[0].shape[3],
 
-  'c_strides': node.attr.strides[0], # node._attributes[-1].ints[0],
+  'strides_x': node.attr.strides[0],
+  'strides_y': node.attr.strides[1],
 
   'bias': node.input[2].c_name + '[c]' if len(node.input) >= 3 else 0,
   'conv_l': node.input[1].shape[2],
@@ -390,16 +490,15 @@ void ${name}(void* in, void* out)
   }
 
   for(int c_i=0;c_i < ${i_ch};c_i++) {
-    for(int m=0;m < ${conv_l};m++) {
-      for(int n=0;n < ${conv_l};n++) {
-        ${ctype} t = ${weight}[c_i][0][m][n];
-        if(${ctype}_IS_ZERO(t))
-          continue;
-        for(int x=0;x<${o_x};x++) {
-          for(int y=0;y<${o_y};y++) {
-            (*o)[c_i][x][y] += (*i)[c_i][x+m][y+n] * t;
+    for(int x=0;x<${o_x};x++) {
+      for(int y=0;y<${o_y};y++) {
+        double sum = 0.0;
+        for(int m=0;m < ${conv_l};m++) {
+          for(int n=0;n < ${conv_l};n++) {
+            sum += (*i)[c_i][x*${strides_x}+m][y*${strides_y}+n] * ${weight}[c_i][0][m][n];
           }
         }
+        sum += (*o)[c_i][x][y];
       }
     }
   }
@@ -427,6 +526,7 @@ conv_optimizer = [
   DepthwiseConvGeneralPaddingImpl,
   ConvGeneralPaddingImpl,
   ConvGeneralNoPaddingImpl,
+  DepthwiseConvGeneralImpl,
   ConvGeneralImpl,
 ]
 
@@ -640,8 +740,8 @@ bn_format = lambda node:{
   'size': node.input[0].shape[2] * node.input[0].shape[3],
   'scale': node.input[1].c_name,
   'bias': node.input[2].c_name,
-  'mean': node.input[3].c_name,
-  'var': node.input[4].c_name,
+  'running_mean': node.input[3].c_name,
+  'running_var': node.input[4].c_name,
 }
 
 bn = Template("""
@@ -653,8 +753,27 @@ void ${name}(void* in, void* out)
   for(int c=0;c < ${ch};c++) {
     ${ctype}* p = (typeof(p))((*i)[c]);
     int cnt = 0;
-    while(cnt++ < ${size}) {
-      (*i)[c][cnt] = ${scale}[c] * ((*i)[c][cnt] - ${mean}[c]) / sqrtf(${var}[c]*${var}[c] + ${epsilon}) + ${bias}[c];
+    double sum = 0;
+    double qsum = 0;
+    while(cnt < ${size}) {
+      sum += (*i)[c][cnt];
+      cnt++;
+    }
+    sum /= ${size};
+    cnt=0;
+    while(cnt < ${size}) {
+      qsum += ((*i)[c][cnt]-sum)*((*i)[c][cnt]-sum);
+      cnt++;
+    }
+    qsum /= ${size};
+    cnt=0;
+    sum *= 0.1;
+    qsum *= 0.1;
+    sum += ${running_mean}[c]*0.9;
+    qsum += ${running_var}[c]*0.9;
+    while(cnt < ${size}) {
+      (*i)[c][cnt] = ${scale}[c] * ((*i)[c][cnt] - sum) / sqrtf(qsum + ${epsilon}) + ${bias}[c];
+      cnt++;
     }
   }
 }
@@ -697,15 +816,19 @@ void ${name}(void* in, void* out)
   o = (${ctype} (*)[${ch}][${o_x}][${o_y}])(out);
 
   for(int c=0;c<${ch};c++) {
-    for(int x=0, o_i=0;x<${i_x};x+=${strides_x}) {
-      for(int y=0, o_j=0;y<${i_y};y+=${strides_y}) {
-        ${ctype} result=0;
+    for(int x=0, o_i=0;x<${i_x}-${shape_x}+1;x+=${strides_x}) {
+      for(int y=0, o_j=0;y<${i_y}-${shape_y}+1;y+=${strides_y}) {
+        double result=0;
+        float div=0;
         for(int m=0;m<${shape_x};m++) {
           for(int n=0;n<${shape_y};n++) {
-              result += (*i)[c][x+m][y+n];
+              if((x+m)<${i_x} && (y+n)<${i_y}) {
+                result += (*i)[c][x+m][y+n];
+                div += 1;
+              }
           }
         }
-        (*o)[c][o_i][o_j] = result*(1.f/(${shape_x}.f*${shape_y}.f));
+        (*o)[c][o_i][o_j] = result/div;
         o_j++;
       }
       o_i++;

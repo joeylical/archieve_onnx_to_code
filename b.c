@@ -1,6 +1,15 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <unistd.h>
+#include <stdlib.h>
+
+void export_layer(float*p, uint32_t size)
+{
+  FILE* fp = fopen("export.dat", "wb");
+  fwrite(p, size, sizeof(float), fp);
+  fclose(fp);
+}
+
 #include "mobilenet_v1_1.0_224.c"
 #include "labels.c"
 
@@ -17,15 +26,15 @@ int main(int argc, char* argv[])
     printf("cannot open file\n");
     return 1;
   }
-  fread(inf1, 224*224*3, 1, fp);
-  for(int c=0;c<3;c++) {
-    for(int i=0;i<224;i++) {
-        for(int j=0;j<224;j++) {
-//             inf[c][i][j] = (inf1[i][j][c]/2+0.5)*255;
-          inf[c][i][j] = inf1[i][j][c];
-        }
-    }
-  }
+  fread(inf, 224*224*3, sizeof(float), fp);
+//   for(int c=0;c<3;c++) {
+//     for(int i=0;i<224;i++) {
+//         for(int j=0;j<224;j++) {
+// //             inf[c][i][j] = (inf1[i][j][c]/2+0.5)*255;
+//           inf[c][i][j] = inf1[i][j][c];
+//         }
+//     }
+//   }
 
   fclose(fp);
   

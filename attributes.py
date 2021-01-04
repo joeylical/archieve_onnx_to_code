@@ -45,7 +45,6 @@ class ConvAttr():
     if _auto_pad is None or _auto_pad == 'NOTSET':
       return getAttrByName(self._attrs, 'pads').ints or [0, 0]*self._dims
     elif _auto_pad == 'SAME_UPPER':
-      # TODO: caculate padding values
       return [2]*self._dims + [0]*self._dims
     elif _auto_pad == 'SAME_LOWER':
       return [0]*self._dims + [2]*self._dims

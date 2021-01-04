@@ -64,7 +64,8 @@ def array_to_c_code(array, indent):
     result += ',\n'.join(r_list)
     return result
   else:
-    return ind + '{' + ', '.join(map(str, array)) + '}'
+#     return ind + '{' + ', '.join(map(lambda x:x.astype('float64').astype('str'), array)) + '}'
+    return ind + '{' + ', '.join(map(lambda x:x.astype('str'), array)) + '}'
 
 class ConstantLayer(Layer):
   def __init__(self, name, shape, dType, constant):
